@@ -276,7 +276,7 @@ async def main():
         else: # No final answer was produced
              print("  ❌ No final answer to log.")
 
-        iter_time = time.time() - iteration_start_time
+        iter_time = time.monotonic() - iteration_start_time
         print(f"  Iteration {iteration} took {iter_time:.2f} seconds.")
         if API_RPM_LIMIT > 0:
             target_calls_per_second = API_RPM_LIMIT / 60.0
