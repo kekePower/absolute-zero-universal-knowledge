@@ -159,7 +159,7 @@ async def main():
         print(f"  Proposer task ({current_task_core_data.get('task_title', 'Untitled')}): {current_experience['task_description'][:100]}...")
 
         # --- Stage 2: Solve Task (Parallel with Rollouts if N_SOLVER_ROLLOUTS_FOR_PROPOSER > 1) ---
-        user_question_for_solver = generate_solver_user_question(current_experience["task_description"], task_type)
+        user_question_for_solver = generate_solver_user_question(task_type, current_experience)
         current_experience["solver_user_question"] = user_question_for_solver
         current_experience["solver_model"] = PRIMARY_MODEL_NAME # Assuming primary for now
         current_experience["solver_temperature"] = SOLVER_TEMPERATURE
