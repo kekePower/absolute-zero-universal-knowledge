@@ -130,9 +130,9 @@ async def main():
             print(f"  🎲 Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
 
         proposer_user_question = get_base_proposer_prompt(
-            task_type, 
+            task_type,
             k_examples_for_prompt,
-            concept_for_proposer,
+            main_concept=concept_for_proposer, # Pass concept_for_proposer as main_concept
             stochastic_seed=stochastic_seed_for_proposer
         )
         

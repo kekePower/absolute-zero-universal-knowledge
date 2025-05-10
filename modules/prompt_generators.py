@@ -14,12 +14,22 @@ R1_PROMPT_WRAPPER = (
 )
 
 # --- Enhanced Task Generation Prompts ---
-def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[str, Any]], stochastic_seed: Optional[str] = None) -> str:
+def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[str, Any]], main_concept: Optional[str] = None, stochastic_seed: Optional[str] = None) -> str:
     prompt = f"You are a Proposer AI. Your goal is to generate a novel and challenging task of type: '{task_type_description}'.\n"
+    if main_concept:
+        prompt += f"The primary subject for this task should be '{main_concept}'. Ensure the task is deeply related to this concept.\n"
+    
     prompt += "The task should be specific, well-defined, and solvable, yet push the boundaries of typical AI capabilities.\n"
     prompt += "Avoid trivial or overly broad tasks.\n"
+
     if stochastic_seed:
-        prompt += f"Incorporate elements or themes related to '{stochastic_seed}' into your proposed task in a non-trivial way.\n"
+        if main_concept and main_concept.lower() == stochastic_seed.lower():
+            # If main_concept is the same as stochastic_seed, the main_concept line is sufficient.
+            pass
+        elif main_concept:
+            prompt += f"Optionally, also incorporate elements or themes related to '{stochastic_seed}' into your proposed task in a creative and non-trivial way, if it can enrich the task based on the primary subject '{main_concept}'.\n"
+        else: # No main_concept, so stochastic_seed acts as the primary theme if provided
+            prompt += f"The primary theme for this task should be inspired by '{stochastic_seed}'. Make sure to incorporate this theme centrally.\n"
 
     prompt += "\nReference Examples of previously successful tasks (for structure and complexity inspiration, not direct imitation):\n"
     if k_examples:
@@ -45,43 +55,43 @@ def generate_synthesis_task_user_question(k_examples: List[Dict[str, Any]], use_
     if use_composite and k_examples:
         # Simplified composite logic: just mention it in description for now
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_axioms_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Generation of Novel Axioms and Exploration: Define a new set of axioms for a hypothetical system (mathematical, physical, social, etc.) and explore its logical consequences or emergent properties."
     if use_composite and k_examples:
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_epistemological_probe_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Epistemological Boundary Probes: Design a thought experiment or a series of questions that probe the limits of current knowledge or challenge foundational assumptions in a specific domain."
     if use_composite and k_examples:
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_hypothetical_scenario_exploration_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Hypothetical Scenario Exploration: Develop a detailed narrative or simulation of a plausible future scenario, exploring its implications and potential ethical challenges."
     if use_composite and k_examples:
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_constrained_creative_challenge_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Constrained Creative Challenge: Generate a creative work (e.g., poem, short story, piece of music, visual art concept) under a specific set of unusual or demanding constraints."
     if use_composite and k_examples:
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_first_principles_reimagination_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "First-Principles Reimagination: Re-evaluate a common object, system, or concept from first principles and propose a radically different design or understanding."
     if use_composite and k_examples:
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_analogical_problem_solving_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Analogical Problem Solving: Identify a problem in one domain and propose a solution by drawing an analogy to a solved problem or a well-understood concept in a different, seemingly unrelated domain."
     if use_composite and k_examples:
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
 def generate_panel_discussion_challenge_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = (
@@ -95,7 +105,7 @@ def generate_panel_discussion_challenge_task_user_question(k_examples: List[Dict
     # Modify the base proposer prompt for this specific task's JSON structure
     # This is a bit of a hack; ideally, the proposer prompt would be more flexible
     # or this task type would have its own specialized prompt generation.
-    base_prompt = get_base_proposer_prompt(description, k_examples, stochastic_seed)
+    base_prompt = get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
     # Replace the generic JSON output description with panel-specific one
     specific_json_guidance = ("Output the task as a JSON object with keys: \"task_description\" (the full panel setup), "
                               "\"success_criteria\" (e.g., 'Clear panelist differentiation, insightful dialogue, coherent synthesis'), "
