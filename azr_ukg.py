@@ -25,7 +25,7 @@ SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-f
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50"))
 K_REFERENCE_EXAMPLES = 2
 N_SOLVER_ROLLOUTS_FOR_PROPOSER = int(os.getenv("N_SOLVER_ROLLOUTS_FOR_PROPOSER", "2"))
-FINETUNING_DATA_FILE = "universal_knowledge_exploration_log_v1_3_async.jsonl"
+FINETUNING_DATA_FILE = "universal_knowledge_exploration_log.jsonl"
 TASK_TYPE_DISTRIBUTION = {
     "synthesis_of_disparate_paradigms": 0.35,
     "generation_of_novel_axioms_and_exploration": 0.35,
