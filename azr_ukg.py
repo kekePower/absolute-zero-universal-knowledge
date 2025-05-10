@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.2.1: Added versioning to log file name.
+# v1.2.2: Corrected dual evaluation processing logic.
 
 import json
 import random
@@ -22,7 +22,7 @@ PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # P
 SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Example Qwen model for secondary evaluation. Set to "" to disable.
 
 # Version Configuration
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50"))
@@ -350,7 +350,7 @@ async def main():
         return
 
     print(f"Primary Model (Proposer/Solver/Eval1): {PRIMARY_MODEL_NAME} via {PRIMARY_API_BASE_URL}")
-    if SECONDARY_MODEL_NAME:
+    if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "": # Check if secondary model is configured
         print(f"Secondary Evaluator Model (Eval2): {SECONDARY_MODEL_NAME} (uses Primary API Base URL & Key)")
     else:
         print("Secondary Evaluator Model: Not configured. Using single evaluation.")
@@ -459,13 +459,15 @@ async def main():
                                                                     model_name=SECONDARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)) # Uses PRIMARY creds
                     num_actual_evaluator_api_calls +=1
                 else: 
-                    evaluator_tasks_coroutines.append(async_return_value(None)) 
-            else: 
+                    evaluator_tasks_coroutines.append(async_return_value(None)) # Placeholder for secondary if not used
+            else: # Solver failed for this solution (sol_answer is None)
+                # Placeholder for Primary Evaluator
                 evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type} solver failed to produce an answer."})))
+                # Placeholder for Secondary Evaluator
                 if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "": 
                     evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type} solver failed (no secondary eval)."})))
                 else:
-                    evaluator_tasks_coroutines.append(async_return_value(None))
+                    evaluator_tasks_coroutines.append(async_return_value(None)) # Placeholder if secondary not used
 
 
         print(f"  🚀 Launching {num_actual_evaluator_api_calls} actual evaluator LLM calls (up to {len(evaluator_tasks_coroutines)} total slots) concurrently...")
@@ -473,34 +475,42 @@ async def main():
         api_calls_this_iteration += num_actual_evaluator_api_calls
         
         combined_eval_results = [] 
-        eval_idx = 0
+        eval_response_cursor = 0 # Use a dedicated cursor for all_evaluator_json_responses
+
         for sol_answer, sol_type in solutions_to_evaluate: 
             score1, just1 = 0.0, f"{sol_type} primary eval failed or N/A."
             score2, just2 = 0.0, f"{sol_type} secondary eval failed or N/A (or not configured)."
             
-            primary_eval_json_str = all_evaluator_json_responses[eval_idx]
-            eval_idx +=1
-            if primary_eval_json_str:
-                eval_data1 = parse_json_from_answer(primary_eval_json_str)
+            # Process Primary Evaluator Result
+            primary_eval_json_str = all_evaluator_json_responses[eval_response_cursor]
+            eval_response_cursor += 1 # Consume primary response slot
+            if primary_eval_json_str: # Could be None if async_return_value(None) was used
+                eval_data1 = parse_json_from_answer(primary_eval_json_str) # parse_json_from_answer handles None input
                 if eval_data1 and "quality_score" in eval_data1:
                     score1 = max(0.0, min(1.0, float(eval_data1["quality_score"])))
                     just1 = str(eval_data1.get("justification", "No justification from primary."))
-                else: just1 = f"{sol_type} primary eval malformed: {str(primary_eval_json_str)[:50]}"
+                elif primary_eval_json_str: # If it was not None but parsing failed
+                     just1 = f"{sol_type} primary eval malformed: {str(primary_eval_json_str)[:50]}"
+            
+            # Process Secondary Evaluator Result Slot
+            secondary_eval_json_str = all_evaluator_json_responses[eval_response_cursor]
+            eval_response_cursor += 1 # Consume secondary response slot
             
             if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "":
-                secondary_eval_json_str = all_evaluator_json_responses[eval_idx]
-                eval_idx +=1
-                if secondary_eval_json_str: 
+                if secondary_eval_json_str: # Actual response from secondary, or a JSON string for "solver failed"
                     eval_data2 = parse_json_from_answer(secondary_eval_json_str)
                     if eval_data2 and "quality_score" in eval_data2:
                         score2 = max(0.0, min(1.0, float(eval_data2["quality_score"])))
                         just2 = str(eval_data2.get("justification", "No justification from secondary."))
-                    else: just2 = f"{sol_type} secondary eval malformed: {str(secondary_eval_json_str)[:50]}"
+                    elif secondary_eval_json_str: # If it was not None but parsing failed
+                        just2 = f"{sol_type} secondary eval malformed: {str(secondary_eval_json_str)[:50]}"
+                # If secondary_eval_json_str was None (e.g. API call failed for secondary), score2 and just2 remain default
                 
                 avg_score = (score1 + score2) / 2.0
                 combined_just = f"Primary ({PRIMARY_MODEL_NAME} S={score1:.2f}): {just1} | Secondary ({SECONDARY_MODEL_NAME} S={score2:.2f}): {just2}"
             else: 
-                eval_idx +=1 
+                # No secondary model configured. secondary_eval_json_str was from async_return_value(None) or a solver failure placeholder.
+                # score2 and just2 remain default (0.0, "failed or N/A").
                 avg_score = score1
                 combined_just = f"Primary ({PRIMARY_MODEL_NAME} S={score1:.2f}): {just1}"
             
@@ -518,7 +528,7 @@ async def main():
             proposer_reward = avg_rollout_quality
         elif N_SOLVER_ROLLOUTS_FOR_PROPOSER == 0 :
              proposer_reward = 0.5 
-        else:
+        else: # No successful rollouts or N_SOLVER_ROLLOUTS_FOR_PROPOSER is 0 but no scores
             proposer_reward = 0.0
         print(f"  Proposer reward (r_propose based on {len(rollout_scores_for_reward)} avg rollout scores): {proposer_reward:.2f}")
 
