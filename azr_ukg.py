@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.1.0: Async operations for increased RPM and API limit throttling.
+# v1.2.0: Simplified secondary evaluator config (uses primary API creds).
 
 import json
 import random
@@ -13,16 +13,19 @@ import asyncio # Added for asynchronous operations
 from typing import Dict, List, Tuple, Any, Optional
 
 # --- Configuration ---
-# Novita.ai Configuration (or any other OpenAI-compatible API)
-NOVITA_API_BASE_URL = os.getenv("NOVITA_API_BASE_URL", "https://api.novita.ai/v3/openai")
-NOVITA_API_KEY = os.getenv("NOVITA_API_KEY", "<Your_API_Key_HERE>") # SET THIS!
-NOVITA_MODEL = os.getenv("NOVITA_MODEL", "deepseek/deepseek-r1")
+# Primary LLM Configuration (e.g., Novita)
+PRIMARY_API_BASE_URL = os.getenv("PRIMARY_API_BASE_URL", "https://api.novita.ai/v3/openai")
+PRIMARY_API_KEY = os.getenv("PRIMARY_API_KEY", "<Your_API_Key_HERE>") # SET THIS!
+PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # Proposer & Main Solver
+
+# Secondary LLM Configuration (Evaluator - uses Primary API credentials)
+SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen-max") # Example Qwen model for secondary evaluation. Set to "" to disable.
 
 # General Configuration
-NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50")) # Increased iterations as it runs faster
+NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50"))
 K_REFERENCE_EXAMPLES = 2
-N_SOLVER_ROLLOUTS_FOR_PROPOSER = int(os.getenv("N_SOLVER_ROLLOUTS_FOR_PROPOSER", "2")) # Default 2
-FINETUNING_DATA_FILE = "universal_knowledge_exploration_log_async.jsonl"
+N_SOLVER_ROLLOUTS_FOR_PROPOSER = int(os.getenv("N_SOLVER_ROLLOUTS_FOR_PROPOSER", "2"))
+FINETUNING_DATA_FILE = "universal_knowledge_exploration_log_v1_3_async.jsonl"
 TASK_TYPE_DISTRIBUTION = {
     "synthesis_of_disparate_paradigms": 0.35,
     "generation_of_novel_axioms_and_exploration": 0.35,
@@ -30,19 +33,21 @@ TASK_TYPE_DISTRIBUTION = {
 }
 MAX_TOKENS_PROPOSER = 3000
 MAX_TOKENS_SOLVER = 3500
-MAX_TOKENS_EVALUATOR = 1000
+MAX_TOKENS_EVALUATOR = 1000 # Per evaluator call
 PROPOSER_TEMPERATURE = 0.85
 SOLVER_TEMPERATURE = 0.75
-EVALUATOR_TEMPERATURE = 0.4
+EVALUATOR_TEMPERATURE = 0.4 # For both evaluators
+
+# Quality Thresholds
+LOGGING_QUALITY_THRESHOLD = float(os.getenv("LOGGING_QUALITY_THRESHOLD", "0.3"))
+LEARNED_CONCEPT_QUALITY_THRESHOLD = float(os.getenv("LEARNED_CONCEPT_QUALITY_THRESHOLD", "0.6"))
 
 COMPOSITE_CONCEPT_PROBABILITY = 0.2
 MAX_LEARNED_CONCEPTS = 30
 
 # API Throttling Configuration
-API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "10")) # Target API calls per minute limit
-
-# Minimal sleep between iterations if not throttled by API_RPM_LIMIT
-MIN_ITER_SLEEP = 0.2 # Small sleep to prevent overly tight loops if API calls are extremely fast
+API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "10"))
+MIN_ITER_SLEEP = 0.2
 
 # --- Globals for Curriculum Learning ---
 learned_concepts_pool: List[Dict[str, Any]] = []
@@ -61,25 +66,22 @@ R1_PROMPT_WRAPPER = (
 )
 
 # --- Async API Client ---
-async def query_llm_api(user_content: str, temperature: float, max_tokens: int, model: str = NOVITA_MODEL) -> Optional[str]:
-    if NOVITA_API_KEY == "<Your_API_Key_HERE>" or not NOVITA_API_KEY:
-        print("FATAL: API_KEY is not set. Please set the environment variable or update the script.")
+async def query_llm_api(user_content: str, temperature: float, max_tokens: int, model_name: str, api_base_url: str, api_key: str) -> Optional[str]:
+    if api_key == "<Your_API_Key_HERE>" or not api_key : # Generic check for the placeholder
+        print(f"FATAL: API_KEY for model {model_name} (using key: {api_key[:5]}...{api_key[-5:] if len(api_key)>10 else ''}) is not properly set. It might still be the placeholder '<Your_API_Key_HERE>'.")
         return None
     try:
-        from openai import AsyncOpenAI # Using AsyncOpenAI
+        from openai import AsyncOpenAI
     except ImportError:
         print("FATAL: The 'openai' library is not installed or version is too old for AsyncOpenAI. Please run: pip install --upgrade openai")
         return None
 
-    # Initialize AsyncOpenAI client. Consider creating it once globally if appropriate.
-    # For this script structure, creating per call is fine but less efficient for many rapid calls.
-    # However, with API rate limits, this might not be the bottleneck.
-    client = AsyncOpenAI(base_url=NOVITA_API_BASE_URL, api_key=NOVITA_API_KEY)
+    client = AsyncOpenAI(base_url=api_base_url, api_key=api_key)
     messages = [{"role": "user", "content": user_content}]
 
     try:
         chat_completion_res = await client.chat.completions.create(
-            model=model,
+            model=model_name,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -90,14 +92,13 @@ async def query_llm_api(user_content: str, temperature: float, max_tokens: int, 
         if assistant_response:
             return assistant_response.strip()
         else:
-            print("Warning: LLM API returned an empty response content.")
+            print(f"Warning: LLM API ({model_name}) returned an empty response content.")
             return None
     except Exception as e:
-        print(f"Error querying LLM API ({model}): {e}")
-        # Add more detailed error info if available (e.g., e.response for HTTP errors)
+        print(f"Error querying LLM API ({model_name} at {api_base_url}): {e}")
         if hasattr(e, 'response') and e.response is not None:
              try:
-                 err_body = await e.response.json() # Or e.response.text()
+                 err_body = await e.response.json()
                  print(f"LLM API Response Status: {e.response.status}")
                  print(f"LLM API Response Body: {err_body}")
              except Exception as e_resp:
@@ -105,7 +106,7 @@ async def query_llm_api(user_content: str, temperature: float, max_tokens: int, 
         elif hasattr(e, 'message'): print(f"Error details: {e.message}")
         return None
 
-# --- Task Generation Prompts (No change, these are synchronous) ---
+# --- Task Generation Prompts (No change from v1.1, these are synchronous) ---
 def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[str, Any]]) -> str:
     question = (
         f"You are an advanced AI Proposer tasked with generating exceptionally novel and challenging intellectual tasks for another AI (the Responder). "
@@ -206,10 +207,10 @@ def generate_solver_user_question(task_type: str, task_data: Dict[str, Any]) -> 
     question += "Please provide your full thinking process within <think> tags, followed by your comprehensive answer within <answer> tags."
     return question
 
-def generate_evaluator_user_question(task_type: str, task_data: Dict[str, Any], solver_extracted_answer: str, success_criteria: Optional[str]) -> str:
+def generate_evaluator_user_question(task_type: str, task_data: Dict[str, Any], solver_extracted_answer: str, success_criteria: Optional[str], evaluator_model_name: str) -> str:
     task_title = task_data.get('task_title', 'Untitled Task')
     return (
-        "You are an AI Quality Evaluator. Your role is to assess the quality of a solution provided by another AI (the Responder) to a complex, novel task. "
+        f"You are an AI Quality Evaluator using model {evaluator_model_name}. Your role is to assess the quality of a solution provided by another AI (the Responder) to a complex, novel task. "
         "Base your evaluation on coherence, depth, originality, relevance to the task, and adherence to any specified success criteria.\n\n"
         f"**Original Task Type:** {task_type}\n"
         f"**Task Title:** {task_title}\n"
@@ -226,7 +227,7 @@ def generate_evaluator_user_question(task_type: str, task_data: Dict[str, Any], 
         "Example: {\"quality_score\": 0.85, \"justification\": \"The solution was highly original and addressed most aspects of the task, but could have explored consequence X in more depth.\"}"
     )
 
-# --- Parsing LLM's <answer> content (No change, synchronous) ---
+# --- Parsing LLM's <answer> content (No change from v1.1, synchronous) ---
 def extract_from_answer_tag(llm_full_response: Optional[str], task_type_for_heuristic: Optional[str] = None) -> Optional[str]:
     if not llm_full_response: return None
     answer_match = re.search(r"<answer[^>]*>\s*([\s\S]+?)\s*</answer>", llm_full_response, re.IGNORECASE | re.DOTALL)
@@ -284,7 +285,7 @@ def parse_json_from_answer(answer_content: Optional[str]) -> Optional[Dict[str, 
 async def async_return_value(value: Any):
     return value
 
-# --- Experience Buffer and Learned Concepts (No change, synchronous) ---
+# --- Experience Buffer and Learned Concepts (Thresholds updated) ---
 def add_to_experience_buffer(proposed_task_data_json: Dict[str, Any], solver_full_llm_response: str, quality_score: float, justification: str):
     experience = {
         "task_type": proposed_task_data_json["task_type"],
@@ -297,7 +298,7 @@ def add_to_experience_buffer(proposed_task_data_json: Dict[str, Any], solver_ful
     if len(experience_buffer) > MAX_BUFFER_SIZE: experience_buffer.pop(0)
 
 def add_to_learned_concepts_pool(task_data: Dict[str, Any], solver_extracted_answer: str, quality_score: float):
-    if quality_score < 0.75: return
+    if quality_score < LEARNED_CONCEPT_QUALITY_THRESHOLD: return
     concept = {
         "task_type": task_data["task_type"],
         "task_title": task_data.get("task_title", "Untitled"),
@@ -308,7 +309,7 @@ def add_to_learned_concepts_pool(task_data: Dict[str, Any], solver_extracted_ans
     if not any(c['task_title'] == concept['task_title'] and c['task_type'] == concept['task_type'] for c in learned_concepts_pool):
         learned_concepts_pool.append(concept)
         if len(learned_concepts_pool) > MAX_LEARNED_CONCEPTS: learned_concepts_pool.pop(0)
-        print(f"    Added concept '{concept['task_title']}' to learned_concepts_pool. Pool size: {len(learned_concepts_pool)}")
+        print(f"    Added concept '{concept['task_title']}' to learned_concepts_pool (Score: {quality_score:.2f}). Pool size: {len(learned_concepts_pool)}")
 
 def get_k_reference_examples() -> List[Dict[str, Any]]:
     if not experience_buffer: return []
@@ -323,7 +324,7 @@ def get_k_reference_examples() -> List[Dict[str, Any]]:
         })
     return formatted_examples
 
-# --- Logging (No change, synchronous) ---
+# --- Logging (Threshold updated) ---
 def log_exploration_data(user_question_for_solver: str, solver_full_llm_response: str,
                          task_data: Dict[str, Any], quality_score: float, justification: str):
     with open(FINETUNING_DATA_FILE, "a", encoding='utf-8') as f:
@@ -333,21 +334,28 @@ def log_exploration_data(user_question_for_solver: str, solver_full_llm_response
             "proposer_task_json": task_data,
             "solver_prompt": user_question_for_solver,
             "solver_full_response": solver_full_llm_response,
-            "solution_quality_score": quality_score,
-            "solution_quality_justification": justification
+            "solution_final_quality_score": quality_score,
+            "solution_quality_justification_combined": justification
         }
         f.write(json.dumps(log_entry) + "\n")
 
 # --- Main Async Loop ---
 async def main():
-    print(f"Starting Absolute Zero Universal Knowledge Generator (v1.1.0 - Async)...")
-    if NOVITA_API_KEY == "<Your_API_Key_HERE>" or not NOVITA_API_KEY:
-        print("FATAL: API_KEY is not set. Please set the environment variable or update the script.")
+    print(f"Starting Absolute Zero Universal Knowledge Generator (v1.3.0 - Simplified Secondary Eval Config)...")
+    if PRIMARY_API_KEY == "<Your_API_Key_HERE>" or not PRIMARY_API_KEY:
+        print("FATAL: PRIMARY_API_KEY is not set. Please set the environment variable or update the script.")
         return
-    print(f"Using LLM Model: {NOVITA_MODEL} via base URL: {NOVITA_API_BASE_URL}")
+
+    print(f"Primary Model (Proposer/Solver/Eval1): {PRIMARY_MODEL_NAME} via {PRIMARY_API_BASE_URL}")
+    if SECONDARY_MODEL_NAME:
+        print(f"Secondary Evaluator Model (Eval2): {SECONDARY_MODEL_NAME} (uses Primary API Base URL & Key)")
+    else:
+        print("Secondary Evaluator Model: Not configured. Using single evaluation.")
     print(f"Logging explorations to: {FINETUNING_DATA_FILE}")
     print(f"Targeting API RPM Limit: {API_RPM_LIMIT if API_RPM_LIMIT > 0 else 'Unlimited'}")
     print(f"Solver rollouts for proposer reward: {N_SOLVER_ROLLOUTS_FOR_PROPOSER}")
+    print(f"Logging Quality Threshold: {LOGGING_QUALITY_THRESHOLD}, Learned Concept Threshold: {LEARNED_CONCEPT_QUALITY_THRESHOLD}")
+
 
     for iteration in range(1, NUM_ITERATIONS + 1):
         iteration_start_time = time.monotonic()
@@ -372,7 +380,8 @@ async def main():
             continue
         
         print(f"🤖 Proposing {task_type} task{' (composite attempt)' if use_composite_task else ''}...")
-        proposer_full_llm_response = await query_llm_api(proposer_prompt_text, temperature=PROPOSER_TEMPERATURE, max_tokens=MAX_TOKENS_PROPOSER)
+        proposer_full_llm_response = await query_llm_api(proposer_prompt_text, temperature=PROPOSER_TEMPERATURE, max_tokens=MAX_TOKENS_PROPOSER,
+                                                         model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)
         api_calls_this_iteration += 1
 
         if not proposer_full_llm_response:
@@ -386,8 +395,7 @@ async def main():
         if not current_task_core_data:
             print(f"  Proposer: <answer> not valid JSON for {task_type}. Skipping."); await asyncio.sleep(1); continue
 
-        # Validate structure (basic)
-        required_keys = []
+        required_keys = [] 
         if task_type == "synthesis_of_disparate_paradigms": required_keys = ["task_title", "source_domains", "synthesis_goal"]
         elif task_type == "generation_of_novel_axioms_and_exploration": required_keys = ["task_title", "hypothetical_system_description", "exploration_tasks"]
         elif task_type == "epistemological_boundary_probes": required_keys = ["task_title", "probe_question"]
@@ -395,33 +403,24 @@ async def main():
             print(f"  Proposer: {task_type} JSON missing one or more required keys. Found: {list(current_task_core_data.keys())}. Skipping."); await asyncio.sleep(1); continue
         
         current_task_core_data["task_type"] = task_type
-        proposer_task_package = { # Package for experience buffer
-            "task_type": task_type,
-            "proposer_full_llm_response": proposer_full_llm_response,
-            "proposer_task_json_str": proposer_answer_content,
-            # Add other details from current_task_core_data if needed for examples
-            "task_title": current_task_core_data.get("task_title", "Untitled")
+        proposer_task_package = {
+            "task_type": task_type, "proposer_full_llm_response": proposer_full_llm_response,
+            "proposer_task_json_str": proposer_answer_content, "task_title": current_task_core_data.get("task_title", "Untitled")
         }
         print(f"  Proposer LLM proposed: {current_task_core_data.get('task_title', 'Untitled Task')[:80]}")
-
         success_criteria = f"A successful response for this '{task_type}' task should be coherent, deeply reasoned, directly address all aspects of the task description, demonstrate originality, and adhere to the expected output format. The thinking process should be transparent."
         current_task_core_data["success_criteria_for_solver"] = success_criteria
-
 
         # --- Stage 2: All Solvers (Main + Rollouts) Concurrently ---
         print(f"  🤖 Preparing solver attempts...")
         solver_tasks_coroutines = []
-        
-        # Main solver task
         main_solver_user_question = generate_solver_user_question(task_type, current_task_core_data)
-        solver_tasks_coroutines.append(query_llm_api(main_solver_user_question, temperature=SOLVER_TEMPERATURE, max_tokens=MAX_TOKENS_SOLVER))
-
-        # Rollout solver tasks
-        for i in range(N_SOLVER_ROLLOUTS_FOR_PROPOSER):
-            rollout_temp = SOLVER_TEMPERATURE + random.uniform(-0.1, 0.1)
-            rollout_temp = max(0.1, min(1.0, rollout_temp)) # Clamp
-            rollout_solver_user_question = generate_solver_user_question(task_type, current_task_core_data) # Using same task data
-            solver_tasks_coroutines.append(query_llm_api(rollout_solver_user_question, temperature=rollout_temp, max_tokens=MAX_TOKENS_SOLVER))
+        solver_tasks_coroutines.append(query_llm_api(main_solver_user_question, temperature=SOLVER_TEMPERATURE, max_tokens=MAX_TOKENS_SOLVER,
+                                                     model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
+        for _ in range(N_SOLVER_ROLLOUTS_FOR_PROPOSER):
+            rollout_temp = max(0.1, min(1.0, SOLVER_TEMPERATURE + random.uniform(-0.1, 0.1)))
+            solver_tasks_coroutines.append(query_llm_api(main_solver_user_question, temperature=rollout_temp, max_tokens=MAX_TOKENS_SOLVER,
+                                                         model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
         
         print(f"  🚀 Launching {len(solver_tasks_coroutines)} solver LLM calls concurrently...")
         all_solver_llm_responses = await asyncio.gather(*solver_tasks_coroutines)
@@ -429,102 +428,120 @@ async def main():
 
         main_solver_full_response = all_solver_llm_responses[0]
         rollout_solver_full_responses = all_solver_llm_responses[1:]
-
         main_solver_extracted_answer = extract_from_answer_tag(main_solver_full_response, task_type)
         rollout_solver_extracted_answers = [extract_from_answer_tag(resp, task_type) for resp in rollout_solver_full_responses]
-
         if not main_solver_extracted_answer:
-            print("  Main solver failed to produce a usable <answer>. Proposer reward might be affected. Continuing with evaluations.")
-            # No skip here, evaluations will handle None answers
+            print("  Main solver failed to produce a usable <answer>. Proposer reward might be affected.")
 
-
-        # --- Stage 3: All Evaluators (Main + Rollouts) Concurrently ---
+        # --- Stage 3: All Evaluators (Main + Rollouts for TWO LLMs if configured) Concurrently ---
         print(f"  🔎 Preparing evaluator attempts...")
         evaluator_tasks_coroutines = []
+        num_actual_evaluator_api_calls = 0
 
-        # Main evaluator task
-        if main_solver_extracted_answer:
-            main_eval_prompt = generate_evaluator_user_question(task_type, current_task_core_data, main_solver_extracted_answer, success_criteria)
-            evaluator_tasks_coroutines.append(query_llm_api(main_eval_prompt, temperature=EVALUATOR_TEMPERATURE, max_tokens=MAX_TOKENS_EVALUATOR))
-        else:
-            # If main solver failed, add a placeholder that resolves to a failed eval
-            evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": "Main solver failed to produce an answer."})))
+        solutions_to_evaluate = [(main_solver_extracted_answer, "Main")]
+        for i, r_ans in enumerate(rollout_solver_extracted_answers):
+            solutions_to_evaluate.append((r_ans, f"Rollout {i+1}"))
 
-        # Rollout evaluator tasks
-        for i in range(N_SOLVER_ROLLOUTS_FOR_PROPOSER):
-            if i < len(rollout_solver_extracted_answers) and rollout_solver_extracted_answers[i]:
-                rollout_eval_prompt = generate_evaluator_user_question(task_type, current_task_core_data, rollout_solver_extracted_answers[i], success_criteria)
-                evaluator_tasks_coroutines.append(query_llm_api(rollout_eval_prompt, temperature=EVALUATOR_TEMPERATURE, max_tokens=MAX_TOKENS_EVALUATOR))
-            else:
-                evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"Rollout solver {i+1} failed to produce an answer."})))
-
-        print(f"  🚀 Launching {len(evaluator_tasks_coroutines)} evaluator LLM calls concurrently...")
-        all_evaluator_json_responses = await asyncio.gather(*evaluator_tasks_coroutines)
-        # Increment API calls only for actual LLM calls, not placeholders
-        api_calls_this_iteration += sum(1 for task_prompt in evaluator_tasks_coroutines if not isinstance(task_prompt, asyncio.Future) or not task_prompt.done() or json.loads(task_prompt.result()).get("justification","").startswith(("Main solver failed", "Rollout solver")))
-
-
-        # Process evaluator responses
-        eval_results = [] # List of (score, justification) tuples
-        for i, json_str_response in enumerate(all_evaluator_json_responses):
-            if json_str_response:
-                eval_data = parse_json_from_answer(json_str_response) # Evaluator directly outputs JSON
-                if eval_data and "quality_score" in eval_data and "justification" in eval_data:
-                    score = max(0.0, min(1.0, float(eval_data["quality_score"])))
-                    eval_results.append((score, str(eval_data["justification"])))
+        for sol_answer, sol_type in solutions_to_evaluate:
+            if sol_answer:
+                # Primary Evaluator
+                eval_prompt_primary = generate_evaluator_user_question(task_type, current_task_core_data, sol_answer, success_criteria, PRIMARY_MODEL_NAME)
+                evaluator_tasks_coroutines.append(query_llm_api(eval_prompt_primary, temperature=EVALUATOR_TEMPERATURE, max_tokens=MAX_TOKENS_EVALUATOR,
+                                                                model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
+                num_actual_evaluator_api_calls +=1
+                # Secondary Evaluator (if configured)
+                if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "":
+                    eval_prompt_secondary = generate_evaluator_user_question(task_type, current_task_core_data, sol_answer, success_criteria, SECONDARY_MODEL_NAME)
+                    evaluator_tasks_coroutines.append(query_llm_api(eval_prompt_secondary, temperature=EVALUATOR_TEMPERATURE, max_tokens=MAX_TOKENS_EVALUATOR,
+                                                                    model_name=SECONDARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)) # Uses PRIMARY creds
+                    num_actual_evaluator_api_calls +=1
+                else: 
+                    evaluator_tasks_coroutines.append(async_return_value(None)) 
+            else: 
+                evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type} solver failed to produce an answer."})))
+                if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "": 
+                    evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type} solver failed (no secondary eval)."})))
                 else:
-                    print(f"    Evaluator response {i} malformed: {json_str_response[:100]}...")
-                    eval_results.append((0.0, f"Malformed evaluator response: {json_str_response[:100]}"))
-            else:
-                print(f"    Evaluator {i} failed to respond.")
-                eval_results.append((0.0, "Evaluator LLM failed to respond."))
-        
-        main_quality_score, main_quality_justification = eval_results[0]
-        rollout_quality_scores_tuples = eval_results[1:]
-        
-        print(f"  Main Solution Quality: {main_quality_score:.2f}. Justification: {main_quality_justification[:100]}...")
+                    evaluator_tasks_coroutines.append(async_return_value(None))
 
+
+        print(f"  🚀 Launching {num_actual_evaluator_api_calls} actual evaluator LLM calls (up to {len(evaluator_tasks_coroutines)} total slots) concurrently...")
+        all_evaluator_json_responses = await asyncio.gather(*evaluator_tasks_coroutines)
+        api_calls_this_iteration += num_actual_evaluator_api_calls
+        
+        combined_eval_results = [] 
+        eval_idx = 0
+        for sol_answer, sol_type in solutions_to_evaluate: 
+            score1, just1 = 0.0, f"{sol_type} primary eval failed or N/A."
+            score2, just2 = 0.0, f"{sol_type} secondary eval failed or N/A (or not configured)."
+            
+            primary_eval_json_str = all_evaluator_json_responses[eval_idx]
+            eval_idx +=1
+            if primary_eval_json_str:
+                eval_data1 = parse_json_from_answer(primary_eval_json_str)
+                if eval_data1 and "quality_score" in eval_data1:
+                    score1 = max(0.0, min(1.0, float(eval_data1["quality_score"])))
+                    just1 = str(eval_data1.get("justification", "No justification from primary."))
+                else: just1 = f"{sol_type} primary eval malformed: {str(primary_eval_json_str)[:50]}"
+            
+            if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "":
+                secondary_eval_json_str = all_evaluator_json_responses[eval_idx]
+                eval_idx +=1
+                if secondary_eval_json_str: 
+                    eval_data2 = parse_json_from_answer(secondary_eval_json_str)
+                    if eval_data2 and "quality_score" in eval_data2:
+                        score2 = max(0.0, min(1.0, float(eval_data2["quality_score"])))
+                        just2 = str(eval_data2.get("justification", "No justification from secondary."))
+                    else: just2 = f"{sol_type} secondary eval malformed: {str(secondary_eval_json_str)[:50]}"
+                
+                avg_score = (score1 + score2) / 2.0
+                combined_just = f"Primary ({PRIMARY_MODEL_NAME} S={score1:.2f}): {just1} | Secondary ({SECONDARY_MODEL_NAME} S={score2:.2f}): {just2}"
+            else: 
+                eval_idx +=1 
+                avg_score = score1
+                combined_just = f"Primary ({PRIMARY_MODEL_NAME} S={score1:.2f}): {just1}"
+            
+            combined_eval_results.append((avg_score, combined_just))
+
+        main_final_quality_score, main_final_quality_justification = combined_eval_results[0]
+        rollout_final_quality_scores_tuples = combined_eval_results[1:]
+        
+        print(f"  Main Solution Final Quality (avg): {main_final_quality_score:.2f}. Justification: {main_final_quality_justification[:150]}...")
 
         # --- Stage 4: Calculate Proposer Reward, Log, Learn (Sequential) ---
-        rollout_scores_for_reward = [score for score, just in rollout_quality_scores_tuples]
+        rollout_scores_for_reward = [score for score, just in rollout_final_quality_scores_tuples]
         if N_SOLVER_ROLLOUTS_FOR_PROPOSER > 0 and rollout_scores_for_reward:
             avg_rollout_quality = sum(rollout_scores_for_reward) / len(rollout_scores_for_reward)
-            proposer_reward = avg_rollout_quality # Simple reward based on average quality of rollout solutions
+            proposer_reward = avg_rollout_quality
         elif N_SOLVER_ROLLOUTS_FOR_PROPOSER == 0 :
-             proposer_reward = 0.5 # Default if no rollouts
-        else: # No successful rollouts
+             proposer_reward = 0.5 
+        else:
             proposer_reward = 0.0
-        print(f"  Proposer reward (r_propose based on {len(rollout_scores_for_reward)} rollouts): {proposer_reward:.2f}")
+        print(f"  Proposer reward (r_propose based on {len(rollout_scores_for_reward)} avg rollout scores): {proposer_reward:.2f}")
 
-        if main_solver_extracted_answer and main_quality_score >= 0.5:
+        if main_solver_extracted_answer and main_final_quality_score >= LOGGING_QUALITY_THRESHOLD: 
             log_exploration_data(main_solver_user_question, main_solver_full_response,
-                                 current_task_core_data, main_quality_score, main_quality_justification)
-            add_to_experience_buffer(proposer_task_package, main_solver_full_response, main_quality_score, main_quality_justification)
-            print(f"  ✅ Main solution (Quality: {main_quality_score:.2f}) logged and added to experience buffer.")
-            add_to_learned_concepts_pool(current_task_core_data, main_solver_extracted_answer, main_quality_score)
-        elif main_solver_extracted_answer: # Quality too low
-             print(f"  ❌ Main solution quality ({main_quality_score:.2f}) too low. Not logged for SFT or learned concepts.")
-        else: # No answer from main solver
+                                 current_task_core_data, main_final_quality_score, main_final_quality_justification)
+            add_to_experience_buffer(proposer_task_package, main_solver_full_response, main_final_quality_score, main_final_quality_justification)
+            print(f"  ✅ Main solution (Final Quality: {main_final_quality_score:.2f}) logged and added to experience buffer.")
+            add_to_learned_concepts_pool(current_task_core_data, main_solver_extracted_answer, main_final_quality_score)
+        elif main_solver_extracted_answer:
+             print(f"  ❌ Main solution final quality ({main_final_quality_score:.2f}) too low (Threshold: {LOGGING_QUALITY_THRESHOLD}). Not logged.")
+        else:
              print(f"  ❌ Main solver did not produce an answer. Nothing to log or learn from this attempt.")
-
 
         # --- Iteration Throttling ---
         iteration_duration = time.monotonic() - iteration_start_time
         print(f"  Iteration {iteration} processed {api_calls_this_iteration} API calls in {iteration_duration:.2f} seconds.")
-
         if API_RPM_LIMIT > 0:
             target_calls_per_second = API_RPM_LIMIT / 60.0
             min_time_per_iteration_for_api_limit = api_calls_this_iteration / target_calls_per_second
-            
             if iteration_duration < min_time_per_iteration_for_api_limit:
                 sleep_duration = min_time_per_iteration_for_api_limit - iteration_duration
                 print(f"  Throttling: Sleeping for {sleep_duration:.2f}s to maintain ~{API_RPM_LIMIT} API RPM.")
                 await asyncio.sleep(sleep_duration)
-            else:
-                await asyncio.sleep(MIN_ITER_SLEEP) # Minimal sleep if already over target time
-        else: # Unlimited RPM
-            await asyncio.sleep(MIN_ITER_SLEEP)
-
+            else: await asyncio.sleep(MIN_ITER_SLEEP)
+        else: await asyncio.sleep(MIN_ITER_SLEEP)
 
     print("\n--- Finished ---")
     print(f"Exploration data saved to {FINETUNING_DATA_FILE}")
@@ -536,13 +553,12 @@ if __name__ == "__main__":
     print("DISCLAIMER: This script generates highly speculative and abstract content using LLMs.")
     print("The generated tasks and solutions are for research and exploration into AI capabilities.")
     print("Interpret outputs with caution; they are not validated facts or established knowledge.")
-    print("Ensure API_KEY (e.g., NOVITA_API_KEY) environment variable is set or updated in the script.")
+    print("Ensure API Keys (e.g., PRIMARY_API_KEY) are set or updated.")
     print("The 'openai' library is required (pip install --upgrade openai for AsyncOpenAI).")
     print("********************************************************************************\n")
     
     try:
         import openai
-        # Check for AsyncOpenAI attribute to suggest version if it's old
         if not hasattr(openai, 'AsyncOpenAI'):
             print("Warning: Your 'openai' library version might be too old for AsyncOpenAI. Consider 'pip install --upgrade openai'.")
         print(f"OpenAI library version: {openai.__version__}")
