@@ -56,13 +56,13 @@ def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[s
     prompt += "<think>\n"
     prompt += "  My detailed plan for generating a '" + task_type_description.split(':')[0] + "' task involves considering X, Y, and Z. I will focus on making it novel by incorporating A and ensuring success criteria are measurable via B.\n"
     prompt += "</think><answer>\n"
-    prompt += "{{\n" # Escaped for str.format, so LLM sees { braces
+    prompt += "{\n" # LLM should see a single opening brace for the JSON
     prompt += f"  \"task_description\": \"A sample task description for {task_type_description.split(':')[0]}...\",\n"
     prompt += f"  \"success_criteria\": \"The solution must achieve A, B, and C...\",\n"
     prompt += f"  \"domain_tags\": [\"sample\", \"{task_type_description.split(':')[0].lower().replace(' ', '_')}\"],\n"
     prompt += f"  \"novelty_level\": 0.75,\n"
     prompt += f"  \"task_type_generated\": \"{task_type_description.split(':')[0]}\"\n"
-    prompt += "}}\n" # Escaped for str.format
+    prompt += "}\n" # LLM should see a single closing brace for the JSON
     prompt += "</answer>\n"
 
     return R1_PROMPT_WRAPPER.format(question=prompt)
