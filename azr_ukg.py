@@ -218,7 +218,13 @@ async def main():
             main_final_quality_score = 0.0
             main_final_quality_justification = "No answer provided by solver or critique/revise."
         else:
-            user_question_for_evaluator = generate_evaluator_user_question(current_experience["task_description"], answer_to_evaluate, task_type)
+            user_question_for_evaluator = generate_evaluator_user_question(
+                task_type, 
+                current_experience, 
+                answer_to_evaluate, 
+                current_experience.get("success_criteria"), 
+                PRIMARY_MODEL_NAME
+            )
             current_experience["evaluator_response"] = await query_llm_api(
                 user_question_for_evaluator, EVALUATOR_TEMPERATURE, MAX_TOKENS_EVALUATOR,
                 PRIMARY_MODEL_NAME, PRIMARY_API_BASE_URL, PRIMARY_API_KEY
