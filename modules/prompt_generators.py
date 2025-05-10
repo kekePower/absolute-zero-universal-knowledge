@@ -40,14 +40,31 @@ def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[s
     else:
         prompt += "- No reference examples available yet.\n"
 
-    prompt += "\nOutput the task as a JSON object with the following keys:\n"
-    prompt += "1. \"task_description\": A detailed description of the task.\n"
-    prompt += "2. \"success_criteria\": Specific, measurable criteria for evaluating a successful solution. This should be a string, not a list initially.\n"
-    prompt += "3. \"domain_tags\": A list of 2-5 relevant domain tags (e.g., ['physics', 'philosophy', 'creative_writing']).\n"
-    prompt += "4. \"novelty_level\": An estimated novelty score from 0.0 (mundane) to 1.0 (paradigm-shifting).\n"
-    prompt += "5. \"task_type_generated\": Echo back the precise task type you were asked to generate (e.g., '{task_type_description.split(':')[0]}').\n"
-    prompt += "Ensure the JSON is well-formed.\n"
-    prompt += f"Example Output: {{ \"task_description\": \"...\", \"success_criteria\": \"...\", \"domain_tags\": [...], \"novelty_level\": 0.8, \"task_type_generated\": \"{task_type_description.split(':')[0]}\" }}"
+    # Clearer instructions for think/answer tags and JSON output
+    prompt += "\nOutput Format Instructions:\n"
+    prompt += "1. First, provide your detailed reasoning and plan within `<think> </think>` tags. This is for your thought process.\n"
+    prompt += "2. Immediately following the `</think>` tag, you MUST provide the task definition as a single, well-formed JSON object. This entire JSON object must be enclosed strictly within `<answer> </answer>` tags.\n"
+    prompt += "The JSON object (the content inside the <answer> tags) must have the following keys:\n"
+    prompt += "  a. \"task_description\": A detailed description of the task.\n"
+    prompt += "  b. \"success_criteria\": Specific, measurable criteria for evaluating a successful solution (as a string).\n"
+    prompt += "  c. \"domain_tags\": A list of 2-5 relevant domain tags (e.g., ['physics', 'philosophy']).\n"
+    prompt += "  d. \"novelty_level\": An estimated novelty score from 0.0 (mundane) to 1.0 (paradigm-shifting).\n"
+    prompt += "  e. \"task_type_generated\": Echo back the precise task type you were asked to generate (e.g., '" + task_type_description.split(':')[0] + "').\n"
+    prompt += "Ensure the JSON inside the <answer> tags is perfectly well-formed.\n\n"
+
+    prompt += "Example of the REQUIRED final output structure (what you, the Assistant, should generate):\n"
+    prompt += "<think>\n"
+    prompt += "  My detailed plan for generating a '" + task_type_description.split(':')[0] + "' task involves considering X, Y, and Z. I will focus on making it novel by incorporating A and ensuring success criteria are measurable via B.\n"
+    prompt += "</think><answer>\n"
+    prompt += "{{\n" # Escaped for str.format, so LLM sees { braces
+    prompt += f"  \"task_description\": \"A sample task description for {task_type_description.split(':')[0]}...\",\n"
+    prompt += f"  \"success_criteria\": \"The solution must achieve A, B, and C...\",\n"
+    prompt += f"  \"domain_tags\": [\"sample\", \"{task_type_description.split(':')[0].lower().replace(' ', '_')}\"],\n"
+    prompt += f"  \"novelty_level\": 0.75,\n"
+    prompt += f"  \"task_type_generated\": \"{task_type_description.split(':')[0]}\"\n"
+    prompt += "}}\n" # Escaped for str.format
+    prompt += "</answer>\n"
+
     return R1_PROMPT_WRAPPER.format(question=prompt)
 
 def generate_synthesis_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
