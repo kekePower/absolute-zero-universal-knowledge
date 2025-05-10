@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.3.0: Incorporated advanced prompt engineering techniques for proposer.
+# v1.4.0: Panel of Experts, Solver Self-Critique, Stochastic Proposer Perturbations.
 
 import json
 import random
@@ -16,35 +16,39 @@ from typing import Dict, List, Tuple, Any, Optional
 # Primary LLM Configuration
 PRIMARY_API_BASE_URL = os.getenv("PRIMARY_API_BASE_URL", "https://api.novita.ai/v3/openai")
 PRIMARY_API_KEY = os.getenv("PRIMARY_API_KEY", "<Your_API_Key_HERE>") # SET THIS!
-PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # Proposer & Main Solver
+PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # Proposer, Solver, Critiquer
 
 # Secondary LLM Configuration (Evaluator - uses Primary API credentials)
 SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Set to "" or None to disable.
 
 # Version Configuration
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # General Configuration
-NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50"))
+NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "30")) # Adjusted due to increased calls per iter
 K_REFERENCE_EXAMPLES = 2
-N_SOLVER_ROLLOUTS_FOR_PROPOSER = int(os.getenv("N_SOLVER_ROLLOUTS_FOR_PROPOSER", "2"))
+N_SOLVER_ROLLOUTS_FOR_PROPOSER = int(os.getenv("N_SOLVER_ROLLOUTS_FOR_PROPOSER", "1")) # Reduced for faster iterations with new steps
 FINETUNING_DATA_FILE = f"universal_knowledge_exploration_log_v{VERSION}.jsonl"
 
 TASK_TYPE_DISTRIBUTION = {
-    "synthesis_of_disparate_paradigms": 0.20, # Existing
-    "generation_of_novel_axioms_and_exploration": 0.20, # Existing
-    "epistemological_boundary_probes": 0.15, # Existing
-    "hypothetical_scenario_exploration": 0.15, # New: "What if?", counterfactuals
-    "constrained_creative_challenge": 0.15, # New: Constraints, anti-goals, SCAMPER
-    "first_principles_reimagination": 0.10, # New: Rebuild from scratch
-    "analogical_problem_solving": 0.05, # New: Obscure analogies
+    "synthesis_of_disparate_paradigms": 0.15,
+    "generation_of_novel_axioms_and_exploration": 0.15,
+    "epistemological_boundary_probes": 0.10,
+    "hypothetical_scenario_exploration": 0.15,
+    "constrained_creative_challenge": 0.15,
+    "first_principles_reimagination": 0.10,
+    "analogical_problem_solving": 0.10,
+    "panel_discussion_challenge": 0.10, # New
 }
 
-MAX_TOKENS_PROPOSER = 3200 # Slightly increased for more complex instructions
-MAX_TOKENS_SOLVER = 3500
+MAX_TOKENS_PROPOSER = 3300
+MAX_TOKENS_SOLVER = 3800 # Might need more for panel discussions + synthesis
+MAX_TOKENS_CRITIQUE_REVISE = 3800 # For critique and revised answer
 MAX_TOKENS_EVALUATOR = 1000
-PROPOSER_TEMPERATURE = 0.88 # Slightly higher for more creativity
-SOLVER_TEMPERATURE = 0.75
+PROPOSER_TEMPERATURE = 0.90 # Higher for more creative and perturbed proposals
+SOLVER_TEMPERATURE = 0.78 # Slightly higher for creative panel roles
+CRITIQUE_TEMPERATURE = 0.5
+REVISE_TEMPERATURE = 0.7
 EVALUATOR_TEMPERATURE = 0.4
 
 # Quality Thresholds
@@ -53,6 +57,9 @@ LEARNED_CONCEPT_QUALITY_THRESHOLD = float(os.getenv("LEARNED_CONCEPT_QUALITY_THR
 
 COMPOSITE_CONCEPT_PROBABILITY = 0.2
 MAX_LEARNED_CONCEPTS = 30
+STOCHASTIC_PERTURBATION_PROBABILITY = 0.15 # Chance to inject random seed into proposer
+RANDOM_SEED_CONCEPTS = ["entropy", "fractals", "emergence", "symbiosis", "quantum entanglement", "neural networks", "game theory", "dark matter", "consciousness", "algorithmic bias", "terraforming", "bio-mimicry"]
+
 
 # API Throttling Configuration
 API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "10"))
@@ -116,7 +123,7 @@ async def query_llm_api(user_content: str, temperature: float, max_tokens: int, 
         return None
 
 # --- Enhanced Task Generation Prompts ---
-def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[str, Any]]) -> str:
+def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[str, Any]], stochastic_seed: Optional[str] = None) -> str:
     question = (
         f"You are an advanced AI Proposer tasked with generating exceptionally novel and challenging intellectual tasks for another AI (the Responder). "
         f"These tasks should push the boundaries of known concepts, encourage deep synthesis, or explore meta-cognitive questions that humans rarely, if ever, formulate.\n"
@@ -128,20 +135,26 @@ def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[s
         "- **First Principles Reasoning**: Instruct the Responder to discard common assumptions and rebuild a concept or system from fundamental truths.\n"
         "- **Analogical Leaps**: Encourage the use of analogies from obscure, unrelated, or emerging phenomena to solve a problem or generate a new idea.\n"
         "- **SCAMPER/Transformative Thinking**: Suggest applying techniques like Substitute, Combine, Adapt, Modify, Put to another use, Eliminate, or Reverse to a known concept.\n"
-        "- **Multi-Part Challenges**: Design tasks that require the Responder to perform a sequence of distinct reasoning steps (e.g., analyze, critique, then synthesize a solution).\n\n"
+        "- **Multi-Part Challenges**: Design tasks that require the Responder to perform a sequence of distinct reasoning steps (e.g., analyze, critique, then synthesize a solution).\n"
+        "- **Pre-Critique**: Before finalizing your task, briefly consider potential ambiguities or weaknesses a critic might point out. How can you make your task clearer, more robust, or more uniquely challenging in light of these potential criticisms?\n\n"
+    )
+    if stochastic_seed:
+        question += f"**Stochastic Seed Concept**: As an extra challenge, try to subtly and coherently weave the concept of '{stochastic_seed}' into the task you generate, if it can be done naturally to enhance novelty.\n\n"
+
+    question += (
         "Your goal is to propose a task that is: \n"
         "1. Highly original and not a trivial variation of common knowledge or problems.\n"
         "2. Conceptually deep, requiring sophisticated reasoning or creative synthesis.\n"
         "3. Well-defined enough that an advanced AI Responder could attempt a coherent answer, even if the subject is highly abstract or speculative.\n"
         "4. Avoid questions with simple factual answers or those easily found in standard knowledge bases. Aim for generative, analytical, or speculative challenges.\n\n"
-        "IMPORTANT: Your response MUST strictly follow this structure: first, use the <think> tag to outline your reasoning for formulating this specific task, explaining its novelty, the creative techniques you're employing, and what makes it challenging. "
+        "IMPORTANT: Your response MUST strictly follow this structure: first, use the <think> tag to outline your reasoning for formulating this specific task, explaining its novelty, the creative techniques you're employing (including any pre-critique thoughts and how you incorporated the stochastic seed, if provided), and what makes it challenging. "
         "Immediately after the </think> tag, provide the final task proposal within the <answer> tag. Your entire response MUST end with </answer>. "
         "The content inside <answer> MUST be a single JSON object detailing the task for the Responder. All keys and string values in the JSON MUST use double quotes.\n"
     )
     if k_examples:
         question += "\nHere are some examples of how an assistant might structure its thoughts and task proposals for similar broad categories:\n"
         for ex in k_examples:
-            think_example = f"<think>Example Proposer Thinking for a '{ex.get('task_type', 'N/A')}' task: My plan is to combine concept X from domain A with methodology Y from domain B, using combinatorial creativity. The constraint Z will make it challenging. The JSON output will specify keys like 'domain_A_concept', 'domain_B_methodology', 'constraint_Z', 'target_framework_description'.</think>"
+            think_example = f"<think>Example Proposer Thinking for a '{ex.get('task_type', 'N/A')}' task: My plan is to combine concept X from domain A with methodology Y from domain B, using combinatorial creativity. The constraint Z will make it challenging. Pre-critique: I initially thought of asking for a simple comparison, but that's too easy. I'll make it a generative task instead. The JSON output will specify keys like 'domain_A_concept', 'domain_B_methodology', 'constraint_Z', 'target_framework_description'.</think>"
             example_answer_content = ex.get('proposer_task_json_str', '{}')
             if isinstance(example_answer_content, dict): example_answer_content = json.dumps(example_answer_content)
             elif not isinstance(example_answer_content, str): example_answer_content = '{}'
@@ -151,8 +164,11 @@ def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[s
             question += f"  Example Proposer Response Structure: {think_example}{answer_example}\n\n"
     return question
 
-def generate_synthesis_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("Synthesis of Disparate Paradigms", k_examples)
+# ... (Keep existing generate_..._task_user_question functions for old types) ...
+# (generate_synthesis_task_user_question, generate_axioms_task_user_question, etc. will now call the enhanced get_base_proposer_prompt)
+
+def generate_synthesis_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Synthesis of Disparate Paradigms", k_examples, stochastic_seed)
     composite_guidance = "\nConsider incorporating elements or styles of reasoning from previously successful 'learned concepts' if applicable, but ensure the core domains being synthesized are fresh and genuinely disparate." if use_composite and learned_concepts_pool else ""
     return base + (
         "Propose a task that requires the Responder to synthesize insights, methods, or principles from at least two (preferably three or more) highly disparate and seemingly unrelated fields of knowledge to create a novel explanatory framework, a new form of art, a solution to a complex hypothetical problem, or a new philosophical concept. Explicitly state the domains and the desired novel output.\n"
@@ -165,8 +181,8 @@ def generate_synthesis_task_user_question(k_examples: List[Dict[str, Any]], use_
         "  `expected_output_format_description` (string): Guidance on how the Responder should structure their answer."
     )
 
-def generate_axioms_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("Generation of Novel Axioms and Exploration", k_examples)
+def generate_axioms_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Generation of Novel Axioms and Exploration", k_examples, stochastic_seed)
     composite_guidance = "\nOptionally, you can propose a system that builds upon or contrasts with a previously 'learned concept' involving axiomatic systems, but the new axioms must be distinct and lead to different explorations." if use_composite and learned_concepts_pool else ""
     return base + (
         "Propose a task where the Responder must invent a small set of novel, fundamental axioms for a hypothetical system. This system could be mathematical, physical, logical, social, ethical, or even aesthetic. The axioms should be genuinely original and not mere reformulations of existing ones.\n"
@@ -177,84 +193,97 @@ def generate_axioms_task_user_question(k_examples: List[Dict[str, Any]], use_com
         "3. Speculate on the nature of the system or reality that such axioms would describe.\n"
         "The JSON output in <answer> should include keys like: \n"
         "  `task_title` (string): Title for the axiomatic exploration.\n"
-        "  `hypothetical_system_description` (string): A brief overview of the type of system for which axioms are to be generated (e.g., \"A system of ethics for a society of sentient, disembodied AI existing in a simulated universe where resources are algorithmically allocated based on 'novelty contribution'.\").\n"
-        "  `requirements_for_axioms` (list of strings): Specific constraints or goals for the axioms (e.g., [\"Must consist of 3-5 axioms\", \"Should address concepts of 'value' and 'harm' in this context\", \"Must avoid direct human analogues for ethical principles\"]).\n"
-        "  `exploration_tasks` (list of strings): Specific instructions for exploring the consequences (e.g., [\"Define 'justice' based on your axioms\", \"Explore a scenario of extreme novelty stagnation and its ethical implications under your system\"]).\n"
+        "  `hypothetical_system_description` (string): A brief overview of the type of system for which axioms are to be generated.\n"
+        "  `requirements_for_axioms` (list of strings): Specific constraints or goals for the axioms.\n"
+        "  `exploration_tasks` (list of strings): Specific instructions for exploring the consequences.\n"
         "  `expected_output_format_description` (string): Guidance for the Responder's output."
     )
 
-def generate_epistemological_probe_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("Epistemological Boundary Probes", k_examples)
-    composite_guidance = "\nIf relevant, the probe could relate to insights or limitations discussed in a previously 'learned concept', but the core question must be a fresh challenge to the Responder's own nature or knowledge." if use_composite and learned_concepts_pool else ""
+def generate_epistemological_probe_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Epistemological Boundary Probes", k_examples, stochastic_seed)
+    composite_guidance = "\nIf relevant, the probe could relate to insights or limitations discussed in a previously 'learned concept', but the core question must be a fresh challenge." if use_composite and learned_concepts_pool else ""
     return base + (
-        "Propose a task that is an epistemological or meta-cognitive probe directed at the Responder AI itself. This task should make the AI reflect on the nature of its own knowledge, its learning processes, its potential biases, its understanding of concepts like 'truth' or 'consciousness,' or its fundamental limitations in ways that are non-standard and thought-provoking.\n"
+        "Propose a task that is an epistemological or meta-cognitive probe directed at the Responder AI itself. Make it reflect on its knowledge, learning, biases, understanding of 'truth' or 'consciousness,' or its limitations in non-standard ways.\n"
         f"{composite_guidance}\n"
-        "The question should not be answerable by simply stating its architecture or training data. It should require genuine abstract reasoning about its own cognitive existence or the nature of intelligence.\n"
         "The JSON output in <answer> should include keys like: \n"
         "  `task_title` (string): Title for the probe.\n"
-        "  `probe_question` (string): The central, challenging question for the AI about itself or its knowledge (e.g., \"If you were to design a successor intelligence, what core epistemological fallacy inherent in your current architecture would you ensure it avoids, and how?\").\n"
-        "  `context_or_scenario` (string, optional): A brief context or hypothetical scenario to frame the probe question.\n"
-        "  `aspects_to_consider_in_response` (list of strings): Key dimensions or perspectives the AI should address in its answer (e.g., [\"The nature of 'understanding' vs. 'pattern matching'\", \"The role of your training data's inherent biases\", \"Mechanisms for genuine 'doubt' or 'critical self-correction' beyond error minimization\"]).\n"
-        "  `expected_output_format_description` (string): Guidance for the Responder's output."
+        "  `probe_question` (string): The central, challenging question.\n"
+        "  `context_or_scenario` (string, optional): Context to frame the probe.\n"
+        "  `aspects_to_consider_in_response` (list of strings): Key dimensions the AI should address.\n"
+        "  `expected_output_format_description` (string): Guidance for the output."
     )
 
-def generate_hypothetical_scenario_exploration_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("Hypothetical Scenario Exploration", k_examples)
-    composite_guidance = "\nConsider linking this scenario to themes or concepts from previously 'learned concepts' for added depth, if appropriate." if use_composite and learned_concepts_pool else ""
+def generate_hypothetical_scenario_exploration_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Hypothetical Scenario Exploration", k_examples, stochastic_seed)
+    composite_guidance = "\nConsider linking this scenario to themes from 'learned concepts' if appropriate." if use_composite and learned_concepts_pool else ""
     return base + (
-        "Propose a deeply imaginative 'What If?' or counterfactual scenario. This scenario should establish a significant deviation from known reality or history and ask the Responder to explore its profound, non-obvious consequences across multiple domains (e.g., technological, social, philosophical, biological).\n"
+        "Propose a 'What If?' or counterfactual scenario with a significant deviation from known reality/history. Ask the Responder to explore non-obvious consequences across multiple domains.\n"
         f"{composite_guidance}\n"
         "The JSON output in <answer> should include keys like: \n"
-        "  `task_title` (string): Title for the scenario exploration.\n"
-        "  `scenario_premise` (string): The core 'What If?' statement or counterfactual starting point (e.g., \"What if the speed of light was variable and dependent on local gravitational fields in a way that allowed for pockets of superluminal travel, but only under extreme, rare conditions?\").\n"
-        "  `domains_for_exploration` (list of strings): Specific areas where consequences should be explored (e.g., [\"Interstellar civilization development\", \"Fundamental physics research directions\", \"Philosophical concepts of causality and determinism\", \"Artistic and cultural expressions\"]).\n"
-        "  `key_questions_to_address` (list of strings): Specific questions to guide the exploration of consequences.\n"
+        "  `task_title` (string): Title.\n"
+        "  `scenario_premise` (string): The core 'What If?' statement.\n"
+        "  `domains_for_exploration` (list of strings): Areas for consequence exploration.\n"
+        "  `key_questions_to_address` (list of strings): Questions to guide exploration.\n"
         "  `expected_output_format_description` (string): E.g., \"A multi-chapter speculative analysis.\""
     )
 
-def generate_constrained_creative_challenge_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("Constrained Creative Challenge", k_examples)
-    composite_guidance = "\nIf a 'learned concept' involved a specific object or idea, consider tasking the Responder to transform it using these techniques." if use_composite and learned_concepts_pool else ""
+def generate_constrained_creative_challenge_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Constrained Creative Challenge", k_examples, stochastic_seed)
+    composite_guidance = "\nIf a 'learned concept' involved an object/idea, task the Responder to transform it." if use_composite and learned_concepts_pool else ""
     return base + (
-        "Propose a task that challenges the Responder to create something novel (a concept, a design, a solution, a story) under a set of highly unusual, artificial, or severe constraints. Alternatively, ask it to apply a specific creative transformation technique (like SCAMPER: Substitute, Combine, Adapt, Modify, Put to another use, Eliminate, Reverse) to a well-known concept or object to reinvent it.\n"
+        "Challenge the Responder to create something novel under unusual or severe constraints, or apply a transformation technique (like SCAMPER) to reinvent a known concept.\n"
         f"{composite_guidance}\n"
         "The JSON output in <answer> should include keys like: \n"
-        "  `task_title` (string): Title for the challenge.\n"
-        "  `creative_goal` (string): What needs to be created or reinvented (e.g., \"Reinvent the concept of a 'book' for a post-literate society that communicates via direct neural interfaces.\").\n"
-        "  `constraints_or_transformation_technique` (list of strings): The specific constraints (e.g., [\"Must not use any physical materials\", \"Must be powered by ambient emotional energy\", \"Must have a built-in mechanism for self-obsolescence after one use\"]) OR the transformation technique and target (e.g., [\"Apply SCAMPER to the concept of 'democracy'\"]).\n"
-        "  `evaluation_criteria_for_novelty` (list of strings): How the novelty/creativity of the solution will be judged.\n"
-        "  `expected_output_format_description` (string): E.g., \"A detailed design document with justifications for choices.\""
+        "  `task_title` (string): Title.\n"
+        "  `creative_goal` (string): What to create/reinvent.\n"
+        "  `constraints_or_transformation_technique` (list of strings): Specific constraints OR transformation technique and target.\n"
+        "  `evaluation_criteria_for_novelty` (list of strings): How novelty will be judged.\n"
+        "  `expected_output_format_description` (string): E.g., \"A detailed design document.\""
     )
 
-def generate_first_principles_reimagination_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("First Principles Reimagination", k_examples)
-    composite_guidance = "\nCould a 'learned concept' be deconstructed and reimagined from a completely different set of first principles?" if use_composite and learned_concepts_pool else ""
+def generate_first_principles_reimagination_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("First Principles Reimagination", k_examples, stochastic_seed)
+    composite_guidance = "\nCould a 'learned concept' be reimagined from different first principles?" if use_composite and learned_concepts_pool else ""
     return base + (
-        "Propose a task that requires the Responder to take a complex existing concept, system, or field of study, discard all common assumptions and current implementations, and attempt to rebuild or reimagine it from a specified set of fundamental first principles (which could themselves be unconventional).\n"
+        "Task the Responder to take a complex existing concept, discard assumptions, and rebuild/reimagine it from specified (possibly unconventional) first principles.\n"
         f"{composite_guidance}\n"
         "The JSON output in <answer> should include keys like: \n"
-        "  `task_title` (string): Title for the reimagination task.\n"
-        "  `concept_to_reimagine` (string): The existing concept/system (e.g., \"The modern financial system\", \"The scientific method\", \"Human language\").\n"
-        "  `new_first_principles` (list of strings): The fundamental, possibly unconventional, principles from which to rebuild (e.g., For 'human language': [\"All communication must be inherently verifiable at the quantum level\", \"Meaning is constructed solely through shared embodied experience, not abstract symbols\", \"The primary purpose of language is to reduce existential uncertainty\"]).\n"
-        "  `key_aspects_to_develop` (list of strings): Specific parts of the reimagined concept the Responder should detail.\n"
-        "  `expected_output_format_description` (string): E.g., \"A manifesto outlining the new system and its implications.\""
+        "  `task_title` (string): Title.\n"
+        "  `concept_to_reimagine` (string): The existing concept/system.\n"
+        "  `new_first_principles` (list of strings): Fundamental principles for rebuilding.\n"
+        "  `key_aspects_to_develop` (list of strings): Specific parts of the reimagined concept to detail.\n"
+        "  `expected_output_format_description` (string): E.g., \"A manifesto outlining the new system.\""
     )
 
-def generate_analogical_problem_solving_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False) -> str:
-    base = get_base_proposer_prompt("Analogical Problem Solving", k_examples)
-    composite_guidance = "\nCan an analogy be drawn from a 'learned concept' to solve a problem in an entirely different, specified domain?" if use_composite and learned_concepts_pool else ""
+def generate_analogical_problem_solving_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Analogical Problem Solving", k_examples, stochastic_seed)
+    composite_guidance = "\nCan an analogy from a 'learned concept' solve a problem in a different domain?" if use_composite and learned_concepts_pool else ""
     return base + (
-        "Propose a task where the Responder must solve a complex problem or generate a novel solution in a target domain by drawing deep structural analogies from an obscure, unrelated, or emerging source domain/phenomenon.\n"
+        "Task the Responder to solve a problem or generate a solution in a target domain by drawing analogies from an obscure, unrelated, or emerging source domain.\n"
         f"{composite_guidance}\n"
         "The JSON output in <answer> should include keys like: \n"
-        "  `task_title` (string): Title for the analogical task.\n"
-        "  `problem_domain_and_challenge` (string): The target problem to be solved (e.g., \"Devise a new method for achieving long-term societal consensus on complex ethical issues in a deeply polarized world.\").\n"
-        "  `source_analog_domain` (string): The obscure or unrelated domain to draw analogies from (e.g., \"The principles of swarm intelligence observed in ant colony foraging behavior and nest construction\", \"The way information is encoded and retrieved in holographic memory systems (theoretical)\").\n"
-        "  `aspects_for_analogical_mapping` (list of strings): Key features of the source domain that might be relevant for mapping to the problem domain.\n"
-        "  `desired_solution_characteristics` (list of strings): What properties the novel solution should have.\n"
-        "  `expected_output_format_description` (string): E.g., \"A detailed proposal outlining the analogical mapping and the derived solution.\""
+        "  `task_title` (string): Title.\n"
+        "  `problem_domain_and_challenge` (string): The target problem.\n"
+        "  `source_analog_domain` (string): The obscure domain for analogies.\n"
+        "  `aspects_for_analogical_mapping` (list of strings): Key features for mapping.\n"
+        "  `desired_solution_characteristics` (list of strings): Properties the solution should have.\n"
+        "  `expected_output_format_description` (string): E.g., \"A detailed proposal.\""
     )
 
+def generate_panel_discussion_challenge_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
+    base = get_base_proposer_prompt("Panel Discussion Challenge", k_examples, stochastic_seed)
+    composite_guidance = "\nCould a 'learned concept' be the topic of this panel discussion, explored from new angles?" if use_composite and learned_concepts_pool else ""
+    return base + (
+        "Propose a complex problem or a multifaceted topic. Then, define 2-4 distinct 'expert roles' with specific viewpoints or areas of expertise. The Responder will need to articulate the perspective of each expert on the problem/topic and then provide a synthesized summary or a set of recommendations that considers all viewpoints.\n"
+        f"{composite_guidance}\n"
+        "The JSON output in <answer> should include keys like: \n"
+        "  `task_title` (string): Title for the panel discussion.\n"
+        "  `discussion_topic_or_problem` (string): The central issue to be discussed.\n"
+        "  `expert_roles` (list of dicts): Each dict should have 'role_name' (e.g., \"Skeptical Ethicist\") and 'role_description' (e.g., \"Focuses on potential negative consequences and moral hazards, often questioning underlying assumptions.\"). Aim for 2-4 roles.\n"
+        "  `key_questions_for_panel` (list of strings): Specific questions each expert (and the synthesis) should address.\n"
+        "  `synthesis_goal` (string): What the final synthesized part of the answer should achieve (e.g., \"A balanced summary of perspectives and a list of three actionable recommendations.\").\n"
+        "  `expected_output_format_description` (string): E.g., \"Structured response with sections for each expert's viewpoint followed by a final synthesis.\""
+    )
 
 # --- Solver Prompt Generation (Updated for new task types) ---
 def generate_solver_user_question(task_type: str, task_data: Dict[str, Any]) -> str:
@@ -262,6 +291,7 @@ def generate_solver_user_question(task_type: str, task_data: Dict[str, Any]) -> 
     question += "Engage with the task deeply, aim for originality, coherence, and insightful reasoning. Use <think> for your detailed reasoning process before providing the final answer in the <answer> tag. Your entire response must end with </answer>.\n\n"
     question += f"**Task Title:** {task_data.get('task_title', 'N/A')}\n\n"
 
+    # ... (keep existing cases for older task types) ...
     if task_type == "synthesis_of_disparate_paradigms":
         question += f"**Source Domains to Synthesize:** {', '.join(task_data.get('source_domains', []))}\n"
         question += f"**Synthesis Goal:** {task_data.get('synthesis_goal', 'N/A')}\n"
@@ -314,29 +344,80 @@ def generate_solver_user_question(task_type: str, task_data: Dict[str, Any]) -> 
         if task_data.get('desired_solution_characteristics'):
             question += "**Desired Solution Characteristics:**\n"
             for i, char_item in enumerate(task_data.get('desired_solution_characteristics', [])): question += f"  - {char_item}\n"
-    
+    elif task_type == "panel_discussion_challenge":
+        question += f"**Discussion Topic/Problem:** {task_data.get('discussion_topic_or_problem', 'N/A')}\n"
+        question += "**Expert Roles to Embody:**\n"
+        for i, role_info in enumerate(task_data.get('expert_roles', [])):
+            question += f"  {i+1}. **{role_info.get('role_name', 'Unnamed Role')}**: {role_info.get('role_description', 'No description')}\n"
+        if task_data.get('key_questions_for_panel'):
+            question += "**Key Questions for the Panel (each expert should address these, and they should inform your synthesis):**\n"
+            for i, q_item in enumerate(task_data.get('key_questions_for_panel', [])): question += f"  - {q_item}\n"
+        question += f"**Synthesis Goal:** {task_data.get('synthesis_goal', 'N/A')}\n"
+        question += "Structure your response clearly: first, provide the perspective of each expert individually. Then, provide a final synthesized summary or solution that integrates these perspectives and addresses the synthesis goal.\n"
+
     question += f"\n**Expected Output Format:** {task_data.get('expected_output_format_description', 'A detailed, well-reasoned response.')}\n"
     question += "Please provide your full thinking process within <think> tags, followed by your comprehensive answer within <answer> tags."
     return question
 
+def generate_critique_revise_user_question(original_task_description: str, previous_answer: str, task_type: str) -> str:
+    return (
+        f"You are an AI assistant performing a self-critique and revision step.\n\n"
+        f"**Original Task Type:** {task_type}\n"
+        f"**Original Task Description Summary:**\n{original_task_description[:1000]}...\n\n" # Show a snippet of the original task
+        f"**Your Previous Answer:**\n```text\n{previous_answer}\n```\n\n"
+        "**Instructions for Self-Critique and Revision:**\n"
+        "1.  **Critique your previous answer**: Play devil's advocate. Identify its key weaknesses, potential biases, overlooked angles, areas where the reasoning could be deeper, or aspects that might not fully meet the spirit of the original task's novelty and depth. Be specific in your critique.\n"
+        "2.  **Provide a Revised and Improved Answer**: Based on your critique, generate a new, stronger version of the answer. This revised answer should address the identified weaknesses and aim to be more insightful, comprehensive, creative, and robust.\n\n"
+        "Structure your entire response as follows:\n"
+        "<critique>\n"
+        "[Your detailed critique of the previous answer here...]\n"
+        "</critique>\n\n"
+        "<revised_answer>\n"
+        "[Your new, improved answer here...]\n"
+        "</revised_answer>\n\n"
+        "Ensure the <revised_answer> is a complete, standalone response to the original task, incorporating the improvements."
+    )
+
+# --- Parsing for Critique and Revised Answer ---
+def extract_from_critique_revise_response(llm_full_response: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    if not llm_full_response:
+        return None, None
+    
+    critique_match = re.search(r"<critique>\s*([\s\S]+?)\s*</critique>", llm_full_response, re.IGNORECASE | re.DOTALL)
+    revised_answer_match = re.search(r"<revised_answer>\s*([\s\S]+?)\s*</revised_answer>", llm_full_response, re.IGNORECASE | re.DOTALL)
+    
+    critique = critique_match.group(1).strip() if critique_match else None
+    revised_answer = revised_answer_match.group(1).strip() if revised_answer_match else None
+    
+    if not critique or not revised_answer:
+        print(f"Warning: Could not extract both <critique> and <revised_answer> from self-critique response. Full response: {llm_full_response[:300]}...")
+        # Fallback: if only revised_answer is present without critique tags, or vice-versa, try to get it.
+        # This is less ideal but might salvage some output.
+        if not revised_answer and llm_full_response.strip().lower().startswith("<revised_answer>"): # Check if it's just the revised answer
+             revised_answer_match_fallback = re.search(r"<revised_answer>\s*([\s\S]+?)\s*</revised_answer>", llm_full_response, re.IGNORECASE | re.DOTALL) # Redo search on full string
+             if revised_answer_match_fallback: revised_answer = revised_answer_match_fallback.group(1).strip()
+
+    return critique, revised_answer
+
+
 def generate_evaluator_user_question(task_type: str, task_data: Dict[str, Any], solver_extracted_answer: str, success_criteria: Optional[str], evaluator_model_name: str) -> str:
     task_title = task_data.get('task_title', 'Untitled Task')
+    # The solver_extracted_answer here will be the *revised* answer after self-critique
     return (
-        f"You are an AI Quality Evaluator using model {evaluator_model_name}. Your role is to assess the quality of a solution provided by another AI (the Responder) to a complex, novel task. "
-        "Base your evaluation on coherence, depth, originality, relevance to the task, and adherence to any specified success criteria.\n\n"
+        f"You are an AI Quality Evaluator using model {evaluator_model_name}. Your role is to assess the quality of a solution provided by another AI (the Responder) to a complex, novel task. The solution you are evaluating has already undergone a self-critique and revision step.\n\n"
         f"**Original Task Type:** {task_type}\n"
         f"**Task Title:** {task_title}\n"
         "**Task Description (JSON from Proposer):**\n```json\n"
         f"{json.dumps(task_data, indent=2)}\n```\n\n"
         f"**Success Criteria for a Good Response:**\n{success_criteria or 'No specific criteria provided, evaluate based on general quality.'}\n\n"
-        "**Responder's Solution (content from their <answer> tag):**\n```text\n"
+        "**Responder's (Revised) Solution:**\n```text\n"
         f"{solver_extracted_answer}\n```\n\n"
         "**Evaluation Instructions:**\n"
-        "1. Carefully review the original task, success criteria, and the Responder's solution.\n"
+        "1. Carefully review the original task, success criteria, and the Responder's revised solution.\n"
         "2. Provide a holistic quality score for the solution on a scale of 0.0 (very poor) to 1.0 (excellent).\n"
-        "3. Provide a brief justification for your score, highlighting strengths and weaknesses.\n"
+        "3. Provide a brief justification for your score, highlighting strengths and weaknesses of this revised version.\n"
         "Your response MUST be a JSON object with two keys: 'quality_score' (float) and 'justification' (string).\n"
-        "Example: {\"quality_score\": 0.85, \"justification\": \"The solution was highly original and addressed most aspects of the task, but could have explored consequence X in more depth.\"}"
+        "Example: {\"quality_score\": 0.85, \"justification\": \"The revised solution effectively addressed the initial weaknesses and now presents a more robust and insightful argument.\"}"
     )
 
 # --- Parsing LLM's <answer> content ---
@@ -398,24 +479,28 @@ async def async_return_value(value: Any):
     return value
 
 # --- Experience Buffer and Learned Concepts ---
-def add_to_experience_buffer(proposed_task_data_json: Dict[str, Any], solver_full_llm_response: str, quality_score: float, justification: str):
+def add_to_experience_buffer(proposed_task_data_json: Dict[str, Any], solver_full_llm_response: str, 
+                             critique_text: Optional[str], revised_answer_text: str, # Added critique/revised
+                             quality_score: float, justification: str):
     experience = {
         "task_type": proposed_task_data_json["task_type"],
         "proposer_task_details": proposed_task_data_json,
-        "solver_full_llm_response": solver_full_llm_response,
+        "solver_initial_full_llm_response": solver_full_llm_response, # Storing initial solver response
+        "solver_critique": critique_text,
+        "solver_revised_answer": revised_answer_text, # This is what's evaluated
         "solution_quality_score": quality_score,
         "solution_quality_justification": justification
     }
     experience_buffer.append(experience)
     if len(experience_buffer) > MAX_BUFFER_SIZE: experience_buffer.pop(0)
 
-def add_to_learned_concepts_pool(task_data: Dict[str, Any], solver_extracted_answer: str, quality_score: float):
+def add_to_learned_concepts_pool(task_data: Dict[str, Any], revised_answer_text: str, quality_score: float): # Uses revised answer
     if quality_score < LEARNED_CONCEPT_QUALITY_THRESHOLD: return
     concept = {
         "task_type": task_data["task_type"],
         "task_title": task_data.get("task_title", "Untitled"),
         "task_details_json_str": json.dumps(task_data),
-        "solver_solution_snippet": solver_extracted_answer[:300] + "...",
+        "solver_revised_solution_snippet": revised_answer_text[:300] + "...", # Snippet of the revised solution
         "quality_score": quality_score,
     }
     if not any(c['task_title'] == concept['task_title'] and c['task_type'] == concept['task_type'] for c in learned_concepts_pool):
@@ -437,7 +522,8 @@ def get_k_reference_examples() -> List[Dict[str, Any]]:
     return formatted_examples
 
 # --- Logging ---
-def log_exploration_data(user_question_for_solver: str, solver_full_llm_response: str,
+def log_exploration_data(user_question_for_solver: str, solver_initial_full_response: str, 
+                         critique_response: Optional[str], revised_answer: str, # Added critique/revised
                          task_data: Dict[str, Any], quality_score: float, justification: str):
     with open(FINETUNING_DATA_FILE, "a", encoding='utf-8') as f:
         log_entry = {
@@ -445,7 +531,9 @@ def log_exploration_data(user_question_for_solver: str, solver_full_llm_response
             "task_title": task_data.get("task_title"),
             "proposer_task_json": task_data,
             "solver_prompt": user_question_for_solver,
-            "solver_full_response": solver_full_llm_response,
+            "solver_initial_full_response": solver_initial_full_response,
+            "solver_critique_full_response": critique_response,
+            "solver_revised_answer_extracted": revised_answer,
             "solution_final_quality_score": quality_score,
             "solution_quality_justification_combined": justification
         }
@@ -453,12 +541,12 @@ def log_exploration_data(user_question_for_solver: str, solver_full_llm_response
 
 # --- Main Async Loop ---
 async def main():
-    print(f"Starting Absolute Zero Universal Knowledge Generator (v{VERSION} - Enhanced Proposer Strategies)...")
+    print(f"Starting Absolute Zero Universal Knowledge Generator (v{VERSION} - Panel, Self-Critique, Perturbations)...")
     if PRIMARY_API_KEY == "<Your_API_Key_HERE>" or not PRIMARY_API_KEY:
         print("FATAL: PRIMARY_API_KEY is not set. Please set the environment variable or update the script.")
         return
 
-    print(f"Primary Model (Proposer/Solver/Eval1): {PRIMARY_MODEL_NAME} via {PRIMARY_API_BASE_URL}")
+    print(f"Primary Model (Proposer/Solver/Critiquer/Eval1): {PRIMARY_MODEL_NAME} via {PRIMARY_API_BASE_URL}")
     if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "":
         print(f"Secondary Evaluator Model (Eval2): {SECONDARY_MODEL_NAME} (uses Primary API Base URL & Key)")
     else:
@@ -467,6 +555,7 @@ async def main():
     print(f"Targeting API RPM Limit: {API_RPM_LIMIT if API_RPM_LIMIT > 0 else 'Unlimited'}")
     print(f"Solver rollouts for proposer reward: {N_SOLVER_ROLLOUTS_FOR_PROPOSER}")
     print(f"Logging Quality Threshold: {LOGGING_QUALITY_THRESHOLD}, Learned Concept Threshold: {LEARNED_CONCEPT_QUALITY_THRESHOLD}")
+    print(f"Stochastic Perturbation Probability for Proposer: {STOCHASTIC_PERTURBATION_PROBABILITY*100}%")
 
 
     for iteration in range(1, NUM_ITERATIONS + 1):
@@ -480,27 +569,38 @@ async def main():
         k_examples_for_prompt = get_k_reference_examples()
         use_composite_task = random.random() < COMPOSITE_CONCEPT_PROBABILITY and learned_concepts_pool
         
+        stochastic_seed_for_proposer = None
+        if random.random() < STOCHASTIC_PERTURBATION_PROBABILITY:
+            if learned_concepts_pool and random.random() < 0.5: # Prefer seeds from learned concepts if available
+                stochastic_seed_for_proposer = random.choice(learned_concepts_pool).get("task_title", random.choice(RANDOM_SEED_CONCEPTS))
+            else:
+                stochastic_seed_for_proposer = random.choice(RANDOM_SEED_CONCEPTS)
+            print(f"  🎲 Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
+
+
         proposer_prompt_text = ""
-        # Updated to include new task generation functions
+        # Updated to include new task generation functions and pass stochastic_seed
         if task_type == "synthesis_of_disparate_paradigms":
-            proposer_prompt_text = generate_synthesis_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_synthesis_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         elif task_type == "generation_of_novel_axioms_and_exploration":
-            proposer_prompt_text = generate_axioms_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_axioms_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         elif task_type == "epistemological_boundary_probes":
-            proposer_prompt_text = generate_epistemological_probe_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_epistemological_probe_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         elif task_type == "hypothetical_scenario_exploration":
-            proposer_prompt_text = generate_hypothetical_scenario_exploration_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_hypothetical_scenario_exploration_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         elif task_type == "constrained_creative_challenge":
-            proposer_prompt_text = generate_constrained_creative_challenge_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_constrained_creative_challenge_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         elif task_type == "first_principles_reimagination":
-            proposer_prompt_text = generate_first_principles_reimagination_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_first_principles_reimagination_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         elif task_type == "analogical_problem_solving":
-            proposer_prompt_text = generate_analogical_problem_solving_task_user_question(k_examples_for_prompt, use_composite=use_composite_task)
+            proposer_prompt_text = generate_analogical_problem_solving_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
+        elif task_type == "panel_discussion_challenge":
+            proposer_prompt_text = generate_panel_discussion_challenge_task_user_question(k_examples_for_prompt, use_composite=use_composite_task, stochastic_seed=stochastic_seed_for_proposer)
         else:
             print(f"  Unknown task type for proposal: {task_type}. Skipping iteration.")
             continue
         
-        print(f"🤖 Proposing {task_type} task{' (composite attempt)' if use_composite_task else ''}...")
+        print(f"🤖 Proposing {task_type} task{' (composite attempt)' if use_composite_task else ''}{' with seed: '+stochastic_seed_for_proposer if stochastic_seed_for_proposer else ''}...")
         proposer_full_llm_response = await query_llm_api(proposer_prompt_text, temperature=PROPOSER_TEMPERATURE, max_tokens=MAX_TOKENS_PROPOSER,
                                                          model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)
         api_calls_this_iteration += 1
@@ -516,9 +616,7 @@ async def main():
         if not current_task_core_data:
             print(f"  Proposer: <answer> not valid JSON for {task_type}. Skipping."); await asyncio.sleep(1); continue
 
-        # Basic validation of required keys based on task_type (can be more specific)
-        # This part can be expanded with more specific key checks per new task type if needed
-        if "task_title" not in current_task_core_data: # Universal key
+        if "task_title" not in current_task_core_data: 
              print(f"  Proposer: {task_type} JSON missing 'task_title'. Skipping."); await asyncio.sleep(1); continue
         
         current_task_core_data["task_type"] = task_type
@@ -530,59 +628,89 @@ async def main():
         success_criteria = f"A successful response for this '{task_type}' task should be coherent, deeply reasoned, directly address all aspects of the task description, demonstrate originality, and adhere to the expected output format. The thinking process should be transparent."
         current_task_core_data["success_criteria_for_solver"] = success_criteria
 
-        # --- Stage 2: All Solvers (Main + Rollouts) Concurrently ---
-        print(f"  🤖 Preparing solver attempts...")
-        solver_tasks_coroutines = []
-        main_solver_user_question = generate_solver_user_question(task_type, current_task_core_data)
-        solver_tasks_coroutines.append(query_llm_api(main_solver_user_question, temperature=SOLVER_TEMPERATURE, max_tokens=MAX_TOKENS_SOLVER,
-                                                     model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
-        for _ in range(N_SOLVER_ROLLOUTS_FOR_PROPOSER):
-            rollout_temp = max(0.1, min(1.0, SOLVER_TEMPERATURE + random.uniform(-0.1, 0.1)))
-            solver_tasks_coroutines.append(query_llm_api(main_solver_user_question, temperature=rollout_temp, max_tokens=MAX_TOKENS_SOLVER,
-                                                         model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
+        # --- Stage 2: Solver (Initial Answer) + Self-Critique/Revision (Main + Rollouts) ---
+        print(f"  🤖 Preparing solver and self-critique attempts...")
         
-        print(f"  🚀 Launching {len(solver_tasks_coroutines)} solver LLM calls concurrently...")
-        all_solver_llm_responses = await asyncio.gather(*solver_tasks_coroutines)
-        api_calls_this_iteration += len(solver_tasks_coroutines)
+        async def solve_and_critique_revise_task(task_data_dict: Dict[str, Any], solver_temp: float, critique_temp: float, revise_temp: float) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+            """ Helper to encapsulate solve -> critique -> revise logic """
+            # Initial Solve
+            solver_user_q = generate_solver_user_question(task_data_dict["task_type"], task_data_dict)
+            initial_solver_resp = await query_llm_api(solver_user_q, temperature=solver_temp, max_tokens=MAX_TOKENS_SOLVER,
+                                                      model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)
+            initial_extracted_ans = extract_from_answer_tag(initial_solver_resp, task_data_dict["task_type"])
 
-        main_solver_full_response = all_solver_llm_responses[0]
-        rollout_solver_full_responses = all_solver_llm_responses[1:]
-        main_solver_extracted_answer = extract_from_answer_tag(main_solver_full_response, task_type)
-        rollout_solver_extracted_answers = [extract_from_answer_tag(resp, task_type) for resp in rollout_solver_full_responses]
-        if not main_solver_extracted_answer:
-            print("  Main solver failed to produce a usable <answer>. Proposer reward might be affected.")
+            if not initial_extracted_ans:
+                print(f"    Solver (temp {solver_temp:.2f}) failed to produce initial usable answer.")
+                return initial_solver_resp, None, None # Return full initial response, no critique, no revised
+
+            # Self-Critique and Revision
+            critique_revise_q = generate_critique_revise_user_question(
+                json.dumps(task_data_dict, indent=2), # Pass full task data for context
+                initial_extracted_ans,
+                task_data_dict["task_type"]
+            )
+            critique_revise_resp = await query_llm_api(critique_revise_q, temperature=critique_temp, max_tokens=MAX_TOKENS_CRITIQUE_REVISE, # Using critique_temp, can be same as revise_temp
+                                                        model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)
+            
+            critique_text, revised_answer_text = extract_from_critique_revise_response(critique_revise_resp)
+
+            if not revised_answer_text:
+                print(f"    Self-Critique/Revision failed to produce a revised answer. Using initial answer if available.")
+                # Return initial response, the critique attempt, but no *new* revised answer (or initial if critique failed badly)
+                return initial_solver_resp, critique_revise_resp, initial_extracted_ans # Fallback to initial if revision fails
+            
+            return initial_solver_resp, critique_revise_resp, revised_answer_text
+
+        solve_critique_coroutines = []
+        # Main attempt
+        solve_critique_coroutines.append(solve_and_critique_revise_task(current_task_core_data, SOLVER_TEMPERATURE, CRITIQUE_TEMPERATURE, REVISE_TEMPERATURE))
+        # Rollout attempts
+        for _ in range(N_SOLVER_ROLLOUTS_FOR_PROPOSER):
+            rollout_solver_temp = max(0.1, min(1.0, SOLVER_TEMPERATURE + random.uniform(-0.1, 0.1)))
+            # For rollouts, critique/revise temps can also be varied or kept same
+            solve_critique_coroutines.append(solve_and_critique_revise_task(current_task_core_data, rollout_solver_temp, CRITIQUE_TEMPERATURE, REVISE_TEMPERATURE))
+
+        print(f"  🚀 Launching {len(solve_critique_coroutines) * 2} LLM calls (solve + critique/revise) for {len(solve_critique_coroutines)} solution attempts concurrently...")
+        all_solve_critique_results = await asyncio.gather(*solve_critique_coroutines)
+        api_calls_this_iteration += len(solve_critique_coroutines) * 2 # 1 for solve, 1 for critique/revise
+
+        main_initial_solver_response, main_critique_response, main_revised_answer = all_solve_critique_results[0]
+        rollout_results = all_solve_critique_results[1:] # List of (initial_resp, critique_resp, revised_ans)
+
+        if not main_revised_answer:
+            print("  Main solver's self-critique/revision failed to produce a final answer.")
+            # If main_revised_answer is None, it means even the fallback to initial_extracted_ans failed.
+            # This case should be rare if initial solve produced something.
 
         # --- Stage 3: All Evaluators (Main + Rollouts for TWO LLMs if configured) Concurrently ---
-        print(f"  🔎 Preparing evaluator attempts...")
+        # Evaluators will now assess the REVISED answers.
+        print(f"  🔎 Preparing evaluator attempts for revised answers...")
         evaluator_tasks_coroutines = []
         num_actual_evaluator_api_calls = 0
 
-        solutions_to_evaluate = [(main_solver_extracted_answer, "Main")]
-        for i, r_ans in enumerate(rollout_solver_extracted_answers):
-            solutions_to_evaluate.append((r_ans, f"Rollout {i+1}"))
+        solutions_to_evaluate_revised = [(main_revised_answer, "Main (Revised)")]
+        for i, (_, _, r_revised_ans) in enumerate(rollout_results): # Iterate through revised answers from rollouts
+            solutions_to_evaluate_revised.append((r_revised_ans, f"Rollout {i+1} (Revised)"))
 
-        for sol_answer, sol_type in solutions_to_evaluate:
-            if sol_answer:
-                # Primary Evaluator
-                eval_prompt_primary = generate_evaluator_user_question(task_type, current_task_core_data, sol_answer, success_criteria, PRIMARY_MODEL_NAME)
+        for sol_revised_answer, sol_type_desc in solutions_to_evaluate_revised:
+            if sol_revised_answer: # If a revised answer exists (even if it's fallback to initial)
+                eval_prompt_primary = generate_evaluator_user_question(task_type, current_task_core_data, sol_revised_answer, success_criteria, PRIMARY_MODEL_NAME)
                 evaluator_tasks_coroutines.append(query_llm_api(eval_prompt_primary, temperature=EVALUATOR_TEMPERATURE, max_tokens=MAX_TOKENS_EVALUATOR,
                                                                 model_name=PRIMARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
                 num_actual_evaluator_api_calls +=1
-                # Secondary Evaluator (if configured)
                 if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "":
-                    eval_prompt_secondary = generate_evaluator_user_question(task_type, current_task_core_data, sol_answer, success_criteria, SECONDARY_MODEL_NAME)
+                    eval_prompt_secondary = generate_evaluator_user_question(task_type, current_task_core_data, sol_revised_answer, success_criteria, SECONDARY_MODEL_NAME)
                     evaluator_tasks_coroutines.append(query_llm_api(eval_prompt_secondary, temperature=EVALUATOR_TEMPERATURE, max_tokens=MAX_TOKENS_EVALUATOR,
-                                                                    model_name=SECONDARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY)) # Uses PRIMARY creds
+                                                                    model_name=SECONDARY_MODEL_NAME, api_base_url=PRIMARY_API_BASE_URL, api_key=PRIMARY_API_KEY))
                     num_actual_evaluator_api_calls +=1
                 else: 
                     evaluator_tasks_coroutines.append(async_return_value(None)) 
-            else: 
-                evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type} solver failed to produce an answer."})))
+            else: # No answer (initial solve and critique/revise failed)
+                evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type_desc} solver/critique failed to produce any answer."})))
                 if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "": 
-                    evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type} solver failed (no secondary eval)."})))
+                    evaluator_tasks_coroutines.append(async_return_value(json.dumps({"quality_score": 0.0, "justification": f"{sol_type_desc} solver/critique failed (no secondary eval)."})))
                 else:
                     evaluator_tasks_coroutines.append(async_return_value(None))
-
 
         print(f"  🚀 Launching {num_actual_evaluator_api_calls} actual evaluator LLM calls (up to {len(evaluator_tasks_coroutines)} total slots) concurrently...")
         all_evaluator_json_responses = await asyncio.gather(*evaluator_tasks_coroutines)
@@ -591,9 +719,9 @@ async def main():
         combined_eval_results = [] 
         eval_response_cursor = 0 
 
-        for sol_answer, sol_type in solutions_to_evaluate: 
-            score1, just1 = 0.0, f"{sol_type} primary eval failed or N/A."
-            score2, just2 = 0.0, f"{sol_type} secondary eval failed or N/A (or not configured)."
+        for sol_revised_answer, sol_type_desc in solutions_to_evaluate_revised: 
+            score1, just1 = 0.0, f"{sol_type_desc} primary eval failed or N/A."
+            score2, just2 = 0.0, f"{sol_type_desc} secondary eval failed or N/A (or not configured)."
             
             primary_eval_json_str = all_evaluator_json_responses[eval_response_cursor]
             eval_response_cursor += 1 
@@ -603,7 +731,7 @@ async def main():
                     score1 = max(0.0, min(1.0, float(eval_data1["quality_score"])))
                     just1 = str(eval_data1.get("justification", "No justification from primary."))
                 elif primary_eval_json_str: 
-                     just1 = f"{sol_type} primary eval malformed: {str(primary_eval_json_str)[:50]}"
+                     just1 = f"{sol_type_desc} primary eval malformed: {str(primary_eval_json_str)[:50]}"
             
             secondary_eval_json_str = all_evaluator_json_responses[eval_response_cursor]
             eval_response_cursor += 1 
@@ -615,7 +743,7 @@ async def main():
                         score2 = max(0.0, min(1.0, float(eval_data2["quality_score"])))
                         just2 = str(eval_data2.get("justification", "No justification from secondary."))
                     elif secondary_eval_json_str: 
-                        just2 = f"{sol_type} secondary eval malformed: {str(secondary_eval_json_str)[:50]}"
+                        just2 = f"{sol_type_desc} secondary eval malformed: {str(secondary_eval_json_str)[:50]}"
                 
                 avg_score = (score1 + score2) / 2.0
                 combined_just = f"Primary ({PRIMARY_MODEL_NAME} S={score1:.2f}): {just1} | Secondary ({SECONDARY_MODEL_NAME} S={score2:.2f}): {just2}"
@@ -628,7 +756,7 @@ async def main():
         main_final_quality_score, main_final_quality_justification = combined_eval_results[0]
         rollout_final_quality_scores_tuples = combined_eval_results[1:]
         
-        print(f"  Main Solution Final Quality (avg): {main_final_quality_score:.2f}. Justification: {main_final_quality_justification[:150]}...")
+        print(f"  Main Solution Final Quality (avg of revised): {main_final_quality_score:.2f}. Justification: {main_final_quality_justification[:150]}...")
 
         # --- Stage 4: Calculate Proposer Reward, Log, Learn (Sequential) ---
         rollout_scores_for_reward = [score for score, just in rollout_final_quality_scores_tuples]
@@ -641,16 +769,19 @@ async def main():
             proposer_reward = 0.0
         print(f"  Proposer reward (r_propose based on {len(rollout_scores_for_reward)} avg rollout scores): {proposer_reward:.2f}")
 
-        if main_solver_extracted_answer and main_final_quality_score >= LOGGING_QUALITY_THRESHOLD: 
-            log_exploration_data(main_solver_user_question, main_solver_full_response,
+        if main_revised_answer and main_final_quality_score >= LOGGING_QUALITY_THRESHOLD: 
+            log_exploration_data(main_solver_user_question, main_initial_solver_response, # Log initial response
+                                 main_critique_response, main_revised_answer, # Log critique and revised
                                  current_task_core_data, main_final_quality_score, main_final_quality_justification)
-            add_to_experience_buffer(proposer_task_package, main_solver_full_response, main_final_quality_score, main_final_quality_justification)
+            add_to_experience_buffer(proposer_task_package, main_initial_solver_response, # Use initial for buffer context
+                                     main_critique_response, main_revised_answer,
+                                     main_final_quality_score, main_final_quality_justification)
             print(f"  ✅ Main solution (Final Quality: {main_final_quality_score:.2f}) logged and added to experience buffer.")
-            add_to_learned_concepts_pool(current_task_core_data, main_solver_extracted_answer, main_final_quality_score)
-        elif main_solver_extracted_answer:
+            add_to_learned_concepts_pool(current_task_core_data, main_revised_answer, main_final_quality_score)
+        elif main_revised_answer: # Revised answer exists but quality too low
              print(f"  ❌ Main solution final quality ({main_final_quality_score:.2f}) too low (Threshold: {LOGGING_QUALITY_THRESHOLD}). Not logged.")
-        else:
-             print(f"  ❌ Main solver did not produce an answer. Nothing to log or learn from this attempt.")
+        else: # No revised answer was produced
+             print(f"  ❌ Main solver/critique did not produce a final answer. Nothing to log or learn from this attempt.")
 
         # --- Iteration Throttling ---
         iteration_duration = time.monotonic() - iteration_start_time
