@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.2.0: Simplified secondary evaluator config (uses primary API creds).
+# v1.2.1: Added versioning to log file name.
 
 import json
 import random
@@ -21,11 +21,14 @@ PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # P
 # Secondary LLM Configuration (Evaluator - uses Primary API credentials)
 SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Example Qwen model for secondary evaluation. Set to "" to disable.
 
+# Version Configuration
+VERSION = "1.2.1"
+
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50"))
 K_REFERENCE_EXAMPLES = 2
 N_SOLVER_ROLLOUTS_FOR_PROPOSER = int(os.getenv("N_SOLVER_ROLLOUTS_FOR_PROPOSER", "2"))
-FINETUNING_DATA_FILE = "universal_knowledge_exploration_log.jsonl"
+FINETUNING_DATA_FILE = f"universal_knowledge_exploration_log_v{VERSION}.jsonl"
 TASK_TYPE_DISTRIBUTION = {
     "synthesis_of_disparate_paradigms": 0.35,
     "generation_of_novel_axioms_and_exploration": 0.35,
@@ -341,7 +344,7 @@ def log_exploration_data(user_question_for_solver: str, solver_full_llm_response
 
 # --- Main Async Loop ---
 async def main():
-    print(f"Starting Absolute Zero Universal Knowledge Generator (v1.2.0 - Simplified Secondary Eval Config)...")
+    print(f"Starting Absolute Zero Universal Knowledge Generator (v{VERSION} - Simplified Secondary Eval Config)...")
     if PRIMARY_API_KEY == "<Your_API_Key_HERE>" or not PRIMARY_API_KEY:
         print("FATAL: PRIMARY_API_KEY is not set. Please set the environment variable or update the script.")
         return
