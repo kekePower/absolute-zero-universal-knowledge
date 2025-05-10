@@ -341,7 +341,7 @@ def log_exploration_data(user_question_for_solver: str, solver_full_llm_response
 
 # --- Main Async Loop ---
 async def main():
-    print(f"Starting Absolute Zero Universal Knowledge Generator (v1.3.0 - Simplified Secondary Eval Config)...")
+    print(f"Starting Absolute Zero Universal Knowledge Generator (v1.2.0 - Simplified Secondary Eval Config)...")
     if PRIMARY_API_KEY == "<Your_API_Key_HERE>" or not PRIMARY_API_KEY:
         print("FATAL: PRIMARY_API_KEY is not set. Please set the environment variable or update the script.")
         return
