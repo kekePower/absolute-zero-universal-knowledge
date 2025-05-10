@@ -19,7 +19,7 @@ PRIMARY_API_KEY = os.getenv("PRIMARY_API_KEY", "<Your_API_Key_HERE>") # SET THIS
 PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # Proposer & Main Solver
 
 # Secondary LLM Configuration (Evaluator - uses Primary API credentials)
-SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen-max") # Example Qwen model for secondary evaluation. Set to "" to disable.
+SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Example Qwen model for secondary evaluation. Set to "" to disable.
 
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "50"))
