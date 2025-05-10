@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.4.0: Panel of Experts, Solver Self-Critique, Stochastic Proposer Perturbations.
+# v1.4.1: Panel of Experts, Solver Self-Critique, Stochastic Proposer Perturbations.
 
 import json
 import random
