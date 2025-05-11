@@ -159,8 +159,15 @@ async def main():
             main_concept=concept_for_proposer, # Pass concept_for_proposer as main_concept
             stochastic_seed=stochastic_seed_for_proposer
         )
-        proposer_user_question = refine_prompt_with_gemma(proposer_user_question, "Propose a new challenging task/question")
+        if OLLAMA_ENABLED:
+            # refine_prompt_with_gemma has its own logging for start/success/failure
+            refined_proposer_prompt = refine_prompt_with_gemma(proposer_user_question, "Propose a new challenging task/question")
+            if refined_proposer_prompt and refined_proposer_prompt != proposer_user_question:
+                proposer_user_question = refined_proposer_prompt
         
+        # Log the exact prompt being sent to the main Proposer LLM
+        print(f"\nDEBUG: Final prompt for Proposer LLM ({PRIMARY_MODEL_NAME}):\n---\n{proposer_user_question}\n---")
+
         current_experience["proposer_response"] = await query_llm_api(
             proposer_user_question, PROPOSER_TEMPERATURE, MAX_TOKENS_PROPOSER, 
             PRIMARY_MODEL_NAME, PRIMARY_API_BASE_URL, PRIMARY_API_KEY
