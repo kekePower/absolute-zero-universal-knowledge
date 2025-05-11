@@ -15,58 +15,41 @@ R1_PROMPT_WRAPPER = (
 
 # --- Enhanced Task Generation Prompts ---
 def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[str, Any]], main_concept: Optional[str] = None, stochastic_seed: Optional[str] = None) -> str:
-    prompt = f"You are a Proposer AI. Your goal is to generate a novel and challenging task of type: '{task_type_description}'.\n"
-    if main_concept:
-        prompt += f"The primary subject for this task should be '{main_concept}'. Ensure the task is deeply related to this concept.\n"
-    
-    prompt += "The task should be specific, well-defined, and solvable, yet push the boundaries of typical AI capabilities.\n"
-    prompt += "Avoid trivial or overly broad tasks.\n"
+    json_open_brace = "{"
+    json_close_brace = "}"
 
-    if stochastic_seed:
-        if main_concept and main_concept.lower() == stochastic_seed.lower():
-            # If main_concept is the same as stochastic_seed, the main_concept line is sufficient.
-            pass
-        elif main_concept:
-            prompt += f"Optionally, also incorporate elements or themes related to '{stochastic_seed}' into your proposed task in a creative and non-trivial way, if it can enrich the task based on the primary subject '{main_concept}'.\n"
-        else: # No main_concept, so stochastic_seed acts as the primary theme if provided
-            prompt += f"The primary theme for this task should be inspired by '{stochastic_seed}'. Make sure to incorporate this theme centrally.\n"
+    prompt = f"""You are an AI assistant tasked with generating a new, challenging, and unique task of the type: '{task_type_description}'.
+Your goal is to propose a task that is novel and has clearly defined success criteria.
 
-    prompt += "\nReference Examples of previously successful tasks (for structure and complexity inspiration, not direct imitation):\n"
-    if k_examples:
-        for ex in k_examples:
-            prompt += f"- Task: {ex['task_description']}\n"
-            if ex.get('solution_summary'): # if solution summary is available
-                prompt += f"  (Solved with summary: {ex['solution_summary'][:150]}...)\n"
-    else:
-        prompt += "- No reference examples available yet.\n"
+<<<TASK_SPECIFIC_REFINEMENT_AREA>>>
 
-    # Clearer instructions for think/answer tags and JSON output
-    prompt += "\nOutput Format Instructions:\n"
-    prompt += "1. First, provide your detailed reasoning and plan within `<think> </think>` tags. This is for your thought process.\n"
-    prompt += "2. Immediately following the `</think>` tag, you MUST provide the task definition as a single, well-formed JSON object. This entire JSON object must be enclosed strictly within `<answer> </answer>` tags.\n"
-    prompt += "The JSON object (the content inside the <answer> tags) must have the following keys:\n"
-    prompt += "  a. \"task_description\": A detailed description of the task.\n"
-    prompt += "  b. \"success_criteria\": Specific, measurable criteria for evaluating a successful solution (as a string).\n"
-    prompt += "  c. \"domain_tags\": A list of 2-5 relevant domain tags (e.g., ['physics', 'philosophy']).\n"
-    prompt += "  d. \"novelty_level\": An estimated novelty score from 0.0 (mundane) to 1.0 (paradigm-shifting).\n"
-    prompt += "  e. \"task_type_generated\": Echo back the precise task type you were asked to generate (e.g., '" + task_type_description.split(':')[0] + "').\n"
-    prompt += "Ensure the JSON inside the <answer> tags is perfectly well-formed.\n\n"
-    prompt += "VERY IMPORTANT: For all string values within the JSON response (e.g., 'task_description', 'success_criteria'), ensure content is plain text without any Markdown formatting. Only the JSON structure itself should be formatted as shown."
+Follow these structural guidelines meticulously:
+1.  Think Step-by-Step: First, engage in a brief <think> block to outline your thought process for creating the task. This should include considerations for novelty, clarity of success criteria, and adherence to the task type. State the target novelty level you are aiming for (0.0 to 1.0).
+2.  Provide JSON Output: After the <think> block, provide your response exclusively within an <answer> block. The content of the <answer> block MUST be a single, valid JSON object.
 
-    prompt += "Example of the REQUIRED final output structure (what you, the Assistant, should generate):\n"
-    prompt += "<think>\n"
-    prompt += "  My detailed plan for generating a '" + task_type_description.split(':')[0] + "' task involves considering X, Y, and Z. I will focus on making it novel by incorporating A and ensuring success criteria are measurable via B.\n"
-    prompt += "</think><answer>\n"
-    prompt += "{\n" # LLM should see a single opening brace for the JSON
-    prompt += f"  \"task_description\": \"A sample task description for {task_type_description.split(':')[0]}...\",\n"
-    prompt += f"  \"success_criteria\": \"The solution must achieve A, B, and C...\",\n"
-    prompt += f"  \"domain_tags\": [\"sample\", \"{task_type_description.split(':')[0].lower().replace(' ', '_')}\"],\n"
-    prompt += f"  \"novelty_level\": 0.75,\n"
-    prompt += f"  \"task_type_generated\": \"{task_type_description.split(':')[0]}\"\n"
-    prompt += "}\n" # LLM should see a single closing brace for the JSON
-    prompt += "</answer>\n"
+JSON Structure Requirements:
+- "task_description": A detailed description of the task.
+- "success_criteria": Specific, measurable criteria for evaluating a successful solution (as a string).
+- "domain_tags": A list of 2-5 relevant domain tags (e.g., ['physics', 'philosophy']).
+- "novelty_level": An estimated novelty score from 0.0 (mundane) to 1.0 (paradigm-shifting).
+- "task_type_generated": Echo back the precise task type you were asked to generate (e.g., '{task_type_description}').
 
-    return R1_PROMPT_WRAPPER.format(question=prompt)
+CRITICAL: The content within the <answer> tags MUST be a raw JSON string. DO NOT wrap it in Markdown code blocks (e.g., ```json ... ```). The JSON must start with {json_open_brace} and end with {json_close_brace} directly within the <answer> tags.
+Ensure that all string values within the JSON (especially 'task_description' and 'success_criteria') are plain text and contain NO MARKDOWN formatting.
+
+Here's an example of the complete output structure (content is illustrative):
+<think>
+I will design a '{task_type_description}' task. My aim is a novelty level of 0.7. I need to ensure the success criteria are very specific and test for deep understanding. The domain tags should be relevant to the problem's core.
+</think><answer>{json_open_brace}
+  "task_description": "(A detailed description of the novel task, explicitly related to '{task_type_description}')...",
+  "success_criteria": "(Clear, measurable, and unambiguous criteria for evaluating a solution. This should detail what a successful response must include and how it will be judged)...",
+  "domain_tags": ["relevant_tag_1", "relevant_tag_2", "interdisciplinary_tag"],
+  "novelty_level": 0.7,
+  "task_type_generated": "(Must be exactly '{task_type_description}')"
+{json_close_brace}
+</answer>
+"""
+    return prompt
 
 def generate_synthesis_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Synthesis of Disparate Paradigms: Combine concepts/methods from N (2-3) seemingly unrelated fields to solve a novel problem or create a new artifact."
