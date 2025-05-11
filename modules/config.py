@@ -64,4 +64,7 @@ Your task is to take a set of initial instructions and a target task, and then g
 The refined instructions should guide the LLM to produce high-quality, relevant, and accurate results. 
 Consider potential ambiguities in the original instructions and try to clarify them. 
 Ensure the refined instructions are actionable and provide any necessary context or constraints.
+IMPORTANT: The refined instructions must explicitly tell the target LLM to avoid using any Markdown formatting in its response. For example, include a sentence like 'Do not use Markdown formatting in your response.'
 Output only the refined instructions, without any preamble or explanation."""
+
+# --- Model Names ---
