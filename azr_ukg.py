@@ -66,10 +66,17 @@ async def async_return_value(value: Any):
 # --- Helper function for Ollama refinement ---
 def refine_prompt_with_gemma(original_prompt: str, task_description: str) -> str:
     if OLLAMA_ENABLED:
-        # Construct a more specific prompt for Gemma if needed, or use original_prompt directly.
-        # For now, we assume original_prompt contains the instructions Gemma needs to refine.
-        # The GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT already instructs Gemma on its role.
-        gemma_input_prompt = f"Task: {task_description}\n\nInitial Instructions:\n{original_prompt}"
+        # Construct the explicit input format Gemma now expects
+        gemma_input_prompt = (
+            f"ORIGINAL_INSTRUCTIONS_TEMPLATE_WITH_PLACEHOLDER:\n"
+            f"---\n"
+            f"{original_prompt}\n"
+            f"---\n"
+            f"TASK_CONTEXT_FOR_PLACEHOLDER_REPLACEMENT:\n"
+            f"---\n"
+            f"{task_description}\n"
+            f"---"
+        )
         
         print(f"\nAttempting to refine prompt for '{task_description}' with {OLLAMA_MODEL_NAME}...")
         refined_text = get_ollama_completion(
