@@ -237,7 +237,16 @@ async def main():
         # --- Stage 4: Evaluate (Main Path) ---
         answer_to_evaluate = main_revised_answer if main_revised_answer else main_final_answer_from_solver
         current_experience["final_answer"] = answer_to_evaluate # Store the answer that will be/was evaluated
-        current_experience["evaluator_model"] = PRIMARY_MODEL_NAME # Assuming primary for now
+        
+        # Determine which model to use for evaluation
+        evaluator_model_for_this_run = PRIMARY_MODEL_NAME # Default to primary
+        if SECONDARY_MODEL_NAME and SECONDARY_MODEL_NAME.strip() != "":
+            evaluator_model_for_this_run = SECONDARY_MODEL_NAME
+            # print(f"DEBUG: Using Secondary Evaluator: {evaluator_model_for_this_run}") # Optional debug
+        # else:
+            # print(f"DEBUG: Using Primary Evaluator: {evaluator_model_for_this_run}") # Optional debug
+
+        current_experience["evaluator_model"] = evaluator_model_for_this_run
         current_experience["evaluator_temperature"] = EVALUATOR_TEMPERATURE
 
         if not answer_to_evaluate:
@@ -246,16 +255,28 @@ async def main():
             main_final_quality_justification = "No answer provided by solver or critique/revise."
         else:
             user_question_for_evaluator = generate_evaluator_user_question(
-                task_type, 
-                current_experience, 
+                current_experience.get("task_type_generated", "N/A"),
+                current_task_core_data, # This is current_experience["proposer_task_details_parsed"]
                 answer_to_evaluate, 
-                current_experience.get("success_criteria"), 
-                PRIMARY_MODEL_NAME
+                current_task_core_data.get("success_criteria"),
+                evaluator_model_for_this_run # Pass the chosen evaluator model
             )
-            user_question_for_evaluator = refine_prompt_with_gemma(user_question_for_evaluator, f"Evaluate the solution for: {current_experience['task_description']}")
+            if OLLAMA_ENABLED:
+                print(f"Attempting to refine prompt for 'Evaluate the solution for: {current_experience.get('task_description', 'N/A')}' with {OLLAMA_MODEL_NAME}...")
+                refined_eval_prompt = await refine_prompt_with_gemma(user_question_for_evaluator, f"Evaluate the solution for: {current_experience.get('task_description', 'N/A')}")
+                if refined_eval_prompt:
+                    user_question_for_evaluator = refined_eval_prompt
+                    print(f"Successfully refined prompt with {OLLAMA_MODEL_NAME}.")
+                else:
+                    print(f"Warning: Prompt refinement with {OLLAMA_MODEL_NAME} failed. Using original prompt for evaluator.")
+
             current_experience["evaluator_response"] = await query_llm_api(
-                user_question_for_evaluator, EVALUATOR_TEMPERATURE, MAX_TOKENS_EVALUATOR,
-                PRIMARY_MODEL_NAME, PRIMARY_API_BASE_URL, PRIMARY_API_KEY
+                user_question_for_evaluator, 
+                EVALUATOR_TEMPERATURE, 
+                MAX_TOKENS_EVALUATOR,
+                evaluator_model_for_this_run, # Pass the chosen evaluator model
+                PRIMARY_API_BASE_URL, 
+                PRIMARY_API_KEY
             )
             api_calls_this_iteration += 1
             evaluator_parsed_response = parse_json_from_answer(extract_from_answer_tag(current_experience["evaluator_response"], "evaluator"))
