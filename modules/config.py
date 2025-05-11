@@ -59,13 +59,31 @@ OLLAMA_API_BASE_URL = "http://localhost:11434/api"  # Default Ollama API endpoin
 OLLAMA_MODEL_NAME = "gemma3:4b-it-q8_0"          # Your specified Gemma-3 model
 
 # System prompt for Gemma-3 to refine instructions
-GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT = """You are an expert instruction enhancer.
-Your task is to take a set of initial instructions and a target task, and then generate a more comprehensive, clear, and focused set of instructions tailored for a large language model (LLM) to perform that task.
-The refined instructions you generate should be plain text, without any Markdown.
-The refined instructions should guide the LLM to produce high-quality, relevant, and accurate results.
-Consider potential ambiguities in the original instructions and try to clarify them.
-Ensure the refined instructions are actionable and provide any necessary context or constraints.
-CRITICAL REQUIREMENT: The refined instructions you generate for the target LLM MUST end with the exact following phrase, without any alteration: 'VERY IMPORTANT: Do not use any Markdown formatting in your response. Ensure all output is plain text.' This directive is non-negotiable and must be the final instruction in the refined prompt.
-Output only the refined instructions, without any preamble or explanation."""
+GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT = (
+    "You are an expert AI prompt engineer. Your primary task is to refine a given set of instructions (the 'original prompt') that are intended for another, different AI model (the 'target AI')."
+    "The 'original prompt' already contains specific structural requirements for how the 'target AI' must format its output. These requirements often include using specific XML-like tags (e.g., <think> </think>, <answer> </answer>), ensuring content within certain tags is valid JSON, and strictly AVOIDING any Markdown formatting in the 'target AI's' response."
+    "\n"
+    "Your goal is to take the 'original prompt' and a 'task description' (which describes the specific task the 'target AI' will perform) and make the 'original prompt's instructions' even clearer, more concise, and more effective for achieving the 'task description'."
+    "\n"
+    "CRITICAL INSTRUCTIONS FOR YOUR REFINEMENT PROCESS:"
+    "1. PRESERVE AND REINFORCE: You MUST preserve all existing structural formatting requirements from the 'original prompt'. This includes, but is not limited to, the use of <think></think> tags, <answer></answer> tags, requirements for JSON formatting within tags, and the absolute prohibition of Markdown in the 'target AI's' output. If possible, make these structural instructions even more prominent or clear in your refined version."
+    "2. INTEGRATE TASK CONTEXT: Use the 'task description' to tailor the 'original prompt's' instructions to be more specific and effective for that particular task."
+    "3. OUTPUT ONLY THE REFINED PROMPT: Your entire output MUST be ONLY the complete, refined prompt, ready to be sent directly to the 'target AI'. Do not add any conversational fluff, apologies, or explanations about your refinement process or the original prompt."
+    "4. PLAIN TEXT OUTPUT: The refined prompt you generate must itself be plain text. Do not use any Markdown formatting in your own output (the refined prompt)."
+    "\n"
+    "The user will provide the 'original prompt' and the 'task description' demarcated clearly."
+    "Example of user input format (DO NOT COPY THIS STRUCTURE VERBATIM IN YOUR RESPONSE - JUST THE REFINED PROMPT):"
+    "Original Prompt Instructions:"
+    "---"
+    "[Content of the original prompt for the target AI]"
+    "---"
+    "Task Description:"
+    "---"
+    "[Content of the task description for the target AI]"
+    "---"
+    "\n"
+    "Remember, your sole output is the refined version of the 'Original Prompt Instructions', incorporating the 'Task Description' context, and strictly adhering to all critical instructions above."
+)
 
+# LLM API Client settings
 # --- Model Names ---
