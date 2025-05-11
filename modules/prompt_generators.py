@@ -51,7 +51,7 @@ def get_base_proposer_prompt(task_type_description: str, k_examples: List[Dict[s
     prompt += "  d. \"novelty_level\": An estimated novelty score from 0.0 (mundane) to 1.0 (paradigm-shifting).\n"
     prompt += "  e. \"task_type_generated\": Echo back the precise task type you were asked to generate (e.g., '" + task_type_description.split(':')[0] + "').\n"
     prompt += "Ensure the JSON inside the <answer> tags is perfectly well-formed.\n\n"
-    prompt += "VERY IMPORTANT: Do not use any Markdown formatting for the string values within the JSON response (e.g., for 'task_description', 'success_criteria'). Ensure all strings are plain text. Only the JSON structure itself should be formatted as shown."
+    prompt += "VERY IMPORTANT: For all string values within the JSON response (e.g., 'task_description', 'success_criteria'), ensure content is plain text without any Markdown formatting. Only the JSON structure itself should be formatted as shown."
 
     prompt += "Example of the REQUIRED final output structure (what you, the Assistant, should generate):\n"
     prompt += "<think>\n"
@@ -167,7 +167,7 @@ def generate_solver_user_question(task_type: str, task_data: Dict[str, Any]) -> 
         prompt += "Structure your answer clearly."
     
     prompt += "\nRemember to use the <think></think> and <answer></answer> tags as demonstrated in the initial system prompt."
-    prompt += "\nVERY IMPORTANT: Do not use any Markdown formatting in your response. Ensure it is plain text."
+    prompt += "\nVERY IMPORTANT: Ensure all output is plain text without any Markdown formatting within the <think> and <answer> tags."
     return R1_PROMPT_WRAPPER.format(question=prompt)
 
 
@@ -194,7 +194,7 @@ def generate_critique_revise_user_question(original_task_description: str, previ
     # Note: The R1_PROMPT_WRAPPER is not directly used here as the output format is different (<critique> and <revised_answer>)
     # However, the underlying LLM might still benefit from a similar conversational setup if it was heavily fine-tuned on it.
     # For now, we'll use this custom prompt structure directly.
-    question += "\nVERY IMPORTANT: For the 'critique' and 'revised_answer' fields within the JSON, do not use any Markdown formatting. Ensure they are plain text. Only the JSON structure itself should be formatted as shown."
+    question += "\nVERY IMPORTANT: Ensure all content within the <critique> and <revised_answer> tags is plain text without any Markdown formatting."
     return question # This will be wrapped by the main R1_PROMPT_WRAPPER if model expects it, but the internal tags are custom.
 
 
@@ -215,9 +215,9 @@ def generate_evaluator_user_question(task_type: str, task_data: Dict[str, Any], 
     # If the evaluator is the same as the primary model, wrap with R1 to maintain <think><answer> structure
     if evaluator_model_name == PRIMARY_MODEL_NAME:
         # print(f"DEBUG: Wrapping evaluator prompt with R1_PROMPT_WRAPPER for model {evaluator_model_name}")
-        prompt += "\nVERY IMPORTANT: For the 'justification' field within the JSON, do not use any Markdown formatting. Ensure it is plain text. Only the JSON structure itself should be formatted as shown."
+        prompt += "\nVERY IMPORTANT: Ensure the 'justification' field within the JSON is plain text without any Markdown formatting."
         return R1_PROMPT_WRAPPER.format(question=prompt)
     else:
         # print(f"DEBUG: Using direct prompt for evaluator model {evaluator_model_name}")
-        prompt += "\nVERY IMPORTANT: For the 'justification' field within the JSON, do not use any Markdown formatting. Ensure it is plain text. Only the JSON structure itself should be formatted as shown."
+        prompt += "\nVERY IMPORTANT: Ensure the 'justification' field within the JSON is plain text without any Markdown formatting."
         return prompt # For a potentially different model that doesn't expect R1 wrapper
