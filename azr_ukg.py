@@ -151,7 +151,7 @@ async def main():
                 stochastic_seed_for_proposer = random.choice(learned_concepts_cache).get("task_title", random.choice(RANDOM_SEED_CONCEPTS))
             else:
                 stochastic_seed_for_proposer = random.choice(RANDOM_SEED_CONCEPTS)
-            print(f"  🎲 Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
+            print(f"  Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
 
         proposer_user_question = get_base_proposer_prompt(
             task_type,
@@ -170,7 +170,7 @@ async def main():
         current_task_core_data = parse_json_from_answer(extract_from_answer_tag(current_experience["proposer_response"], task_type))
 
         if not current_task_core_data or not isinstance(current_task_core_data, dict):
-            print("  ❌ Proposer failed to generate valid task JSON. Skipping iteration.")
+            print("  Proposer failed to generate valid task JSON. Skipping iteration.")
             # Log minimal experience for failure analysis if desired
             add_to_experience_buffer(current_experience) 
             await asyncio.sleep(MIN_ITER_SLEEP)
@@ -203,7 +203,7 @@ async def main():
         main_final_answer_from_solver = extract_from_answer_tag(solver_responses[0], task_type)
 
         if not main_final_answer_from_solver:
-            print("  ❌ Solver failed to generate an answer. Skipping further stages.")
+            print("  Solver failed to generate an answer. Skipping further stages.")
             # Log current state of experience
             add_to_experience_buffer(current_experience)
             await asyncio.sleep(MIN_ITER_SLEEP)
@@ -250,7 +250,7 @@ async def main():
         current_experience["evaluator_temperature"] = EVALUATOR_TEMPERATURE
 
         if not answer_to_evaluate:
-            print("  ❌ No answer to evaluate. Skipping evaluation.")
+            print("  No answer to evaluate. Skipping evaluation.")
             main_final_quality_score = 0.0
             main_final_quality_justification = "No answer provided by solver or critique/revise."
         else:
@@ -262,13 +262,14 @@ async def main():
                 evaluator_model_for_this_run # Pass the chosen evaluator model
             )
             if OLLAMA_ENABLED:
-                print(f"Attempting to refine prompt for 'Evaluate the solution for: {current_experience.get('task_description', 'N/A')}' with {OLLAMA_MODEL_NAME}...")
+                # The refine_prompt_with_gemma function itself has print statements for start/success/failure
                 refined_eval_prompt = refine_prompt_with_gemma(user_question_for_evaluator, f"Evaluate the solution for: {current_experience.get('task_description', 'N/A')}")
                 if refined_eval_prompt and refined_eval_prompt != user_question_for_evaluator: # Check if refinement actually happened
                     user_question_for_evaluator = refined_eval_prompt
-                    print(f"Successfully refined prompt with {OLLAMA_MODEL_NAME}.")
-                else:
-                    print(f"Warning: Prompt refinement with {OLLAMA_MODEL_NAME} failed. Using original prompt for evaluator.")
+                # No 'else' needed here for printing, as refine_prompt_with_gemma handles its own failure print
+
+            # Log the exact prompt being sent to the main Evaluator LLM
+            print(f"\nDEBUG: Final prompt for Evaluator LLM ({evaluator_model_for_this_run}):\n---\n{user_question_for_evaluator}\n---")
 
             current_experience["evaluator_response"] = await query_llm_api(
                 user_question_for_evaluator, 
@@ -285,7 +286,7 @@ async def main():
                 main_final_quality_score = float(evaluator_parsed_response.get("quality_score", 0.0))
                 main_final_quality_justification = evaluator_parsed_response.get("justification", "No justification provided.")
             else:
-                print("  ⚠️ Evaluator failed to provide valid JSON. Assigning low score.")
+                print("  Evaluator failed to provide valid JSON. Assigning low score.")
                 main_final_quality_score = 0.1 # Penalize evaluator failure
                 main_final_quality_justification = "Evaluator response parsing failed."
         
@@ -319,11 +320,11 @@ async def main():
 
         if current_experience["evaluator_score"] is not None and current_experience["evaluator_score"] >= LOGGING_QUALITY_THRESHOLD:
             log_exploration_data(current_experience)
-            print(f"  ✅ Main solution (Final Quality: {current_experience['evaluator_score']:.2f}) logged.")
+            print(f"  Main solution (Final Quality: {current_experience['evaluator_score']:.2f}) logged.")
         elif current_experience["final_answer"]: # Final answer exists but quality too low
-             print(f"  ❌ Main solution final quality ({current_experience['evaluator_score']:.2f}) too low (Threshold: {LOGGING_QUALITY_THRESHOLD}). Not logged for finetuning.")
+             print(f"  Main solution final quality ({current_experience['evaluator_score']:.2f}) too low (Threshold: {LOGGING_QUALITY_THRESHOLD}). Not logged for finetuning.")
         else: # No final answer was produced
-             print("  ❌ No final answer to log.")
+             print("  No final answer to log.")
 
         iter_time = time.monotonic() - iteration_start_time
         print(f"  Iteration {iteration} took {iter_time:.2f} seconds.")
