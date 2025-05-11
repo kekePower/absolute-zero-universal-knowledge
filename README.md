@@ -12,6 +12,64 @@ I'm using [Novita.ai](https://novita.ai/) to get access to DeekSeek R1, however 
 
 With a few changes, I think it'd be possible to make the script more modular so that it gets easier to use any provider and model.
 
+## System Requirements
+
+This project requires a specific environment configuration to operate correctly. Ensure the following are set up:
+
+*   **Python Environment**:
+    *   Python 3.8 or higher.
+    *   Required libraries: Install dependencies using `pip install -r requirements.txt`. Key libraries include `requests` (for API calls) and `python-dotenv` (for environment variable management). Create a `requirements.txt` if one doesn't exist, listing at least these.
+
+*   **Ollama (for Instruction Refinement)**:
+    *   **Installation**: A local Ollama instance must be running.
+    *   **Model**: The system is configured to use a model like `gemma3:4b-it-q8_0` (or as specified in `modules/config.py` via `OLLAMA_MODEL_NAME`) for refining instructions. Ensure this model is pulled and available in your Ollama instance (`ollama pull gemma3:4b-it-q8_0`).
+    *   **Configuration**: The Ollama API endpoint is typically `http://localhost:11434/api/generate`. This can be configured via `OLLAMA_API_BASE_URL` in your `.env` file or directly in `modules/config.py`.
+    *   **Enablement**: The Ollama refinement step can be toggled using the `OLLAMA_ENABLED` boolean flag in the configuration.
+
+*   **Primary LLM API Access**:
+    *   **Provider**: The script is currently configured to use Novita.ai as the primary provider for accessing models like DeepSeek and Qwen (configurable via `PRIMARY_MODEL_NAME` in `modules/config.py`).
+    *   **API Key**: A valid API key from your chosen provider is necessary. This should be set as the `PRIMARY_API_KEY` environment variable.
+    *   **Adaptability**: While Novita.ai is the default, the `modules/llm_api_client.py` can be adapted to support other LLM providers by modifying the API call structure and authentication.
+
+*   **Environment Variables (`.env` file)**:
+    *   It is highly recommended to use a `.env` file in the project root to manage sensitive information and configurations. The script uses `python-dotenv` to load these variables.
+    *   Essential variables include:
+        *   `PRIMARY_API_KEY`: For your main LLM provider.
+        *   `OLLAMA_ENABLED` (e.g., `True` or `False`): To toggle Ollama-based instruction refinement.
+        *   `OLLAMA_API_BASE_URL` (e.g., `http://localhost:11434/api/generate`): Ollama API endpoint.
+        *   `OLLAMA_MODEL_NAME` (e.g., `gemma3:4b-it-q8_0`): The Ollama model for refinement.
+        *   `PRIMARY_MODEL_NAME` (e.g., `deepseek-coder-33b-instruct`): Default primary LLM.
+        *   Other model names and configuration parameters as defined in `modules/config.py`.
+
+## Prompt Engineering & LLM Interaction
+
+The core of this system relies on a sophisticated multi-agent architecture and carefully crafted prompt engineering techniques:
+
+*   **Multi-Agent Architecture**:
+    The system employs several specialized LLM "agents," each with a distinct role in the knowledge generation pipeline:
+    *   **Proposer AI**: Generates novel and complex tasks based on a predefined distribution of task types and, optionally, existing examples or conceptual seeds. Its output is a structured JSON defining the task.
+    *   **Solver AI**: Attempts to provide a comprehensive solution to the task proposed. It often follows a "think-then-answer" methodology.
+    *   **Critique/Reviser AI**: (Optionally) Evaluates the Solver's output, provides a critique, and then generates a revised, improved answer.
+    *   **Evaluator AI**: Assesses the quality, novelty, and adherence to success criteria of the generated task-solution pairs, outputting a structured JSON with a score and justification.
+
+*   **Structured Prompts & Output Formats**:
+    *   **Custom Tags**: Prompts are designed to elicit structured responses from LLMs using custom XML-like tags (e.g., `<think> </think>`, `<answer> </answer>`, `<critique> </critique>`, `<revised_answer> </revised_answer>`). This is critical for reliably parsing LLM outputs. The `R1_PROMPT_WRAPPER` in `modules/prompt_generators.py` standardizes the think/answer structure for certain models.
+    *   **JSON Payloads**: Many agents are instructed to return their primary output as a well-formed JSON object within the `<answer>` (or equivalent) tags. This facilitates programmatic access to the generated data.
+    *   **"No Markdown" Policy**: All prompts explicitly instruct the LLMs to **avoid using any Markdown formatting** within JSON string values or in plain text responses. This ensures that the output is clean, directly parsable, and avoids rendering issues or unexpected characters.
+
+*   **Instruction Refinement via Ollama (Gemma)**:
+    *   **Purpose**: To enhance the clarity, focus, and effectiveness of instructions sent to the primary (often larger and more expensive) LLMs.
+    *   **Process**: If `OLLAMA_ENABLED` is true, prompts generated for the Proposer, Solver, etc., are first sent to a local Ollama instance running a smaller, faster model (e.g., Gemma).
+    *   **Refinement Prompt**: Gemma's behavior is guided by `GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT` (in `modules/config.py`), which instructs it to improve the given prompt while crucially ensuring that the "no Markdown" directive is preserved or added to the refined instructions.
+    *   **Workflow**: Original Prompt -> Gemma (via Ollama) for Refinement -> Refined Prompt -> Primary LLM.
+
+*   **Modularity**:
+    *   Prompt generation logic is centralized in `modules/prompt_generators.py`.
+    *   Core configurations, including model names, API settings, and system prompts, are managed in `modules/config.py` and through environment variables.
+    *   LLM API interactions are handled by `modules/llm_api_client.py`.
+
+This structured approach to prompt engineering and LLM interaction is key to the system's ability to generate, solve, and evaluate complex tasks in a semi-autonomous loop.
+
 ## Description
 
 ### What it Does
@@ -47,4 +105,3 @@ The script operates through a sophisticated multi-stage process involving severa
 ## License
 
 MIT License
-
