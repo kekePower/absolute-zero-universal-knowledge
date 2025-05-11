@@ -5,7 +5,7 @@ import time
 import json
 from typing import Optional, Dict, Any, List
 import openai
-from .config import (PRIMARY_API_KEY, DEEPSEEK_API_KEY, QWEN_API_KEY, 
+from .config import (PRIMARY_API_KEY, 
                      OLLAMA_ENABLED, OLLAMA_API_BASE_URL, OLLAMA_MODEL_NAME, 
                      API_RPM_LIMIT, MIN_ITER_SLEEP)
 
