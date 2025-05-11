@@ -59,10 +59,11 @@ OLLAMA_API_BASE_URL = "http://localhost:11434/api"  # Default Ollama API endpoin
 OLLAMA_MODEL_NAME = "gemma3:4b-it-q8_0"          # Your specified Gemma-3 model
 
 # System prompt for Gemma-3 to refine instructions
-GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT = """You are an expert instruction enhancer. 
-Your task is to take a set of initial instructions and a target task, and then generate a more comprehensive, clear, and focused set of instructions tailored for a large language model (LLM) to perform that task. 
-The refined instructions should guide the LLM to produce high-quality, relevant, and accurate results. 
-Consider potential ambiguities in the original instructions and try to clarify them. 
+GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT = """You are an expert instruction enhancer.
+Your task is to take a set of initial instructions and a target task, and then generate a more comprehensive, clear, and focused set of instructions tailored for a large language model (LLM) to perform that task.
+The refined instructions you generate should be plain text, without any Markdown.
+The refined instructions should guide the LLM to produce high-quality, relevant, and accurate results.
+Consider potential ambiguities in the original instructions and try to clarify them.
 Ensure the refined instructions are actionable and provide any necessary context or constraints.
 CRITICAL REQUIREMENT: The refined instructions you generate for the target LLM MUST end with the exact following phrase, without any alteration: 'VERY IMPORTANT: Do not use any Markdown formatting in your response. Ensure all output is plain text.' This directive is non-negotiable and must be the final instruction in the refined prompt.
 Output only the refined instructions, without any preamble or explanation."""
