@@ -52,3 +52,16 @@ RANDOM_SEED_CONCEPTS: List[str] = ["entropy", "fractals", "emergence", "symbiosi
 # API Throttling Configuration
 API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "10"))
 MIN_ITER_SLEEP = 0.2
+
+# New Ollama/Gemma-3 Configuration
+OLLAMA_ENABLED = True  # Enable/disable Ollama integration
+OLLAMA_API_BASE_URL = "http://localhost:11434/api"  # Default Ollama API endpoint
+OLLAMA_MODEL_NAME = "gemma3:4b-it-q8_0"          # Your specified Gemma-3 model
+
+# System prompt for Gemma-3 to refine instructions
+GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT = """You are an expert instruction enhancer. 
+Your task is to take a set of initial instructions and a target task, and then generate a more comprehensive, clear, and focused set of instructions tailored for a large language model (LLM) to perform that task. 
+The refined instructions should guide the LLM to produce high-quality, relevant, and accurate results. 
+Consider potential ambiguities in the original instructions and try to clarify them. 
+Ensure the refined instructions are actionable and provide any necessary context or constraints.
+Output only the refined instructions, without any preamble or explanation."""

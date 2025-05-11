@@ -24,10 +24,12 @@ from modules.config import (
     REVISE_TEMPERATURE, EVALUATOR_TEMPERATURE, LOGGING_QUALITY_THRESHOLD,
     LEARNED_CONCEPT_QUALITY_THRESHOLD, COMPOSITE_CONCEPT_PROBABILITY,
     MAX_LEARNED_CONCEPTS, STOCHASTIC_PERTURBATION_PROBABILITY,
-    RANDOM_SEED_CONCEPTS, API_RPM_LIMIT, MIN_ITER_SLEEP
+    RANDOM_SEED_CONCEPTS, API_RPM_LIMIT, MIN_ITER_SLEEP,
+    OLLAMA_ENABLED, OLLAMA_MODEL_NAME, GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT
 )
+
 # Import the LLM API client function
-from modules.llm_api_client import query_llm_api
+from modules.llm_api_client import query_llm_api, get_ollama_completion
 
 # Import prompt generation functions
 from modules.prompt_generators import (
@@ -60,6 +62,28 @@ from modules.file_logger import log_exploration_data
 # --- Helper for default async results ---
 async def async_return_value(value: Any):
     return value
+
+# --- Helper function for Ollama refinement ---
+def refine_prompt_with_gemma(original_prompt: str, task_description: str) -> str:
+    if OLLAMA_ENABLED:
+        # Construct a more specific prompt for Gemma if needed, or use original_prompt directly.
+        # For now, we assume original_prompt contains the instructions Gemma needs to refine.
+        # The GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT already instructs Gemma on its role.
+        gemma_input_prompt = f"Task: {task_description}\n\nInitial Instructions:\n{original_prompt}"
+        
+        print(f"\nAttempting to refine prompt for '{task_description}' with {OLLAMA_MODEL_NAME}...")
+        refined_text = get_ollama_completion(
+            prompt_text=gemma_input_prompt, # Send the combined task and initial instructions
+            system_prompt=GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT
+        )
+        if refined_text:
+            print(f"Successfully refined prompt with {OLLAMA_MODEL_NAME}.")
+            # Log original and refined for debugging/analysis if needed
+            # log_interaction("GemmaRefinement", gemma_input_prompt, refined_text, OLLAMA_MODEL_NAME, 0, "system_refinement")
+            return refined_text
+        else:
+            print(f"{OLLAMA_MODEL_NAME} refinement failed or returned empty. Using original prompt for '{task_description}'.")
+    return original_prompt
 
 # --- Main Async Loop ---
 async def main():
@@ -135,6 +159,7 @@ async def main():
             main_concept=concept_for_proposer, # Pass concept_for_proposer as main_concept
             stochastic_seed=stochastic_seed_for_proposer
         )
+        proposer_user_question = refine_prompt_with_gemma(proposer_user_question, "Propose a new challenging task/question")
         
         current_experience["proposer_response"] = await query_llm_api(
             proposer_user_question, PROPOSER_TEMPERATURE, MAX_TOKENS_PROPOSER, 
@@ -160,6 +185,7 @@ async def main():
 
         # --- Stage 2: Solve Task (Parallel with Rollouts if N_SOLVER_ROLLOUTS_FOR_PROPOSER > 1) ---
         user_question_for_solver = generate_solver_user_question(task_type, current_experience)
+        user_question_for_solver = refine_prompt_with_gemma(user_question_for_solver, f"Solve the task: {current_experience['task_description']}")
         current_experience["solver_user_question"] = user_question_for_solver
         current_experience["solver_model"] = PRIMARY_MODEL_NAME # Assuming primary for now
         current_experience["solver_temperature"] = SOLVER_TEMPERATURE
@@ -196,6 +222,7 @@ async def main():
                 main_final_answer_from_solver, 
                 task_type
             )
+            user_question_for_critique_revise = refine_prompt_with_gemma(user_question_for_critique_revise, f"Refine the answer for: {current_experience['task_description']}")
             current_experience["critique_revise_response"] = await query_llm_api(
                 user_question_for_critique_revise, CRITIQUE_TEMPERATURE, MAX_TOKENS_CRITIQUE_REVISE,
                 PRIMARY_MODEL_NAME, PRIMARY_API_BASE_URL, PRIMARY_API_KEY
@@ -225,6 +252,7 @@ async def main():
                 current_experience.get("success_criteria"), 
                 PRIMARY_MODEL_NAME
             )
+            user_question_for_evaluator = refine_prompt_with_gemma(user_question_for_evaluator, f"Evaluate the solution for: {current_experience['task_description']}")
             current_experience["evaluator_response"] = await query_llm_api(
                 user_question_for_evaluator, EVALUATOR_TEMPERATURE, MAX_TOKENS_EVALUATOR,
                 PRIMARY_MODEL_NAME, PRIMARY_API_BASE_URL, PRIMARY_API_KEY
