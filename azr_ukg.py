@@ -263,8 +263,8 @@ async def main():
             )
             if OLLAMA_ENABLED:
                 print(f"Attempting to refine prompt for 'Evaluate the solution for: {current_experience.get('task_description', 'N/A')}' with {OLLAMA_MODEL_NAME}...")
-                refined_eval_prompt = await refine_prompt_with_gemma(user_question_for_evaluator, f"Evaluate the solution for: {current_experience.get('task_description', 'N/A')}")
-                if refined_eval_prompt:
+                refined_eval_prompt = refine_prompt_with_gemma(user_question_for_evaluator, f"Evaluate the solution for: {current_experience.get('task_description', 'N/A')}")
+                if refined_eval_prompt and refined_eval_prompt != user_question_for_evaluator: # Check if refinement actually happened
                     user_question_for_evaluator = refined_eval_prompt
                     print(f"Successfully refined prompt with {OLLAMA_MODEL_NAME}.")
                 else:
