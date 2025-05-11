@@ -11,7 +11,7 @@ PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # P
 SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Set to "" or None to disable.
 
 # Version Configuration
-VERSION = "1.4.1"
+VERSION = "1.4.3"
 
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "30")) # Adjusted due to increased calls per iter
@@ -30,9 +30,9 @@ TASK_TYPE_DISTRIBUTION: Dict[str, float] = {
     "panel_discussion_challenge": 0.10, # New
 }
 
-MAX_TOKENS_PROPOSER = 3300
-MAX_TOKENS_SOLVER = 3800 # Might need more for panel discussions + synthesis
-MAX_TOKENS_CRITIQUE_REVISE = 3800 # For critique and revised answer
+MAX_TOKENS_PROPOSER = 1000
+MAX_TOKENS_SOLVER = 4500 # Might need more for panel discussions + synthesis
+MAX_TOKENS_CRITIQUE_REVISE = 4500 # For critique and revised answer
 MAX_TOKENS_EVALUATOR = 1000
 PROPOSER_TEMPERATURE = 0.90 # Higher for more creative and perturbed proposals
 SOLVER_TEMPERATURE = 0.78 # Slightly higher for creative panel roles
