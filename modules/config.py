@@ -15,7 +15,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "<Your_OpenAI_API_Key_HERE>") # SET
 OPENAI_QUESTION_MODEL = os.getenv("OPENAI_QUESTION_MODEL", "gpt-4.1-mini")
 
 # Version Configuration
-VERSION = "1.4.6"
+VERSION = "1.4.7"
 
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "30")) # Adjusted due to increased calls per iter
@@ -30,7 +30,8 @@ TASK_TYPE_DISTRIBUTION: Dict[str, float] = {
     "hypothetical_scenario_exploration": 0.15,
     "constrained_creative_challenge": 0.15,
     "first_principles_reimagination": 0.10,
-    "analogical_problem_solving": 0.10,
+    # "analogical_problem_solving": 0.10, # Replaced to ensure critique stage runs
+    "self_critique_and_revision": 0.10, # Added to trigger critique stage
     "panel_discussion_challenge": 0.10, # New
 }
 
