@@ -30,20 +30,13 @@ from modules.config import (
 )
 
 # Import the LLM API client function
-from modules.llm_api_client import query_llm_api, get_ollama_completion, generate_question_with_openai # Added generate_question_with_openai
+from modules.llm_api_client import query_llm_api, get_ollama_completion, generate_openai_completion
 
 # Import prompt generation functions
 from modules.prompt_generators import (
-    R1_PROMPT_WRAPPER, get_base_proposer_prompt,
-    generate_synthesis_task_user_question,
-    generate_axioms_task_user_question,
-    generate_epistemological_probe_task_user_question,
-    generate_hypothetical_scenario_exploration_task_user_question,
-    generate_constrained_creative_challenge_task_user_question,
-    generate_first_principles_reimagination_task_user_question,
-    generate_analogical_problem_solving_task_user_question,
-    generate_panel_discussion_challenge_task_user_question,
-    generate_solver_user_question, generate_critique_revise_user_question,
+    get_proposer_prompt_for_task_type,
+    generate_solver_user_question,
+    generate_critique_revise_user_question,
     generate_evaluator_user_question
 )
 # Import response parsing functions
@@ -55,7 +48,7 @@ from modules.response_parsers import (
 from modules.learning_manager import (
     experience_buffer, learned_concepts_cache, concept_quality_history, # Globals
     add_to_experience_buffer, sample_from_experience_buffer, 
-    get_concept_to_propose, log_concept_quality, learn_new_concept, Experience # Functions and TypedDict
+    get_concept_to_propose, log_concept_quality, learn_new_concept, Experience, initialize_learning_manager, update_experience_buffer # Functions and TypedDict
 )
 # Import logging function
 from modules.file_logger import log_exploration_data
@@ -111,6 +104,16 @@ async def main():
     print(f"Logging Quality Threshold: {LOGGING_QUALITY_THRESHOLD}, Learned Concept Threshold: {LEARNED_CONCEPT_QUALITY_THRESHOLD}")
     print(f"Stochastic Perturbation Probability for Proposer: {STOCHASTIC_PERTURBATION_PROBABILITY*100}%")
 
+    initialize_learning_manager()
+
+    total_openai_prompt_tokens = 0
+    total_openai_completion_tokens = 0
+    total_openai_calls = 0
+    total_novita_calls = 0
+    successful_experiences = 0
+    failed_experiences = 0
+    script_start_time = time.monotonic()
+
     for iteration in range(1, NUM_ITERATIONS + 1):
         iteration_start_time = time.monotonic()
         print(f"\n--- Iteration {iteration}/{NUM_ITERATIONS} ---")
@@ -123,7 +126,7 @@ async def main():
             "iteration": iteration,
             "task_type": task_type,
             "task_description": "N/A", # Will be updated after proposer
-            "proposer_model": PRIMARY_MODEL_NAME,
+            "proposer_model": OPENAI_QUESTION_MODEL,
             "proposer_temperature": PROPOSER_TEMPERATURE,
             "proposer_response": None,
             "proposer_task_details_parsed": None,
@@ -145,45 +148,82 @@ async def main():
             "proposed_concept_name": None, # Will be updated after proposer
             "proposed_concept_description": None, # Will be updated after proposer
             "is_new_concept_learned": False,
-            "learned_concept_details": None
+            "learned_concept_details": None,
+            "proposer_prompt_tokens": 0, # Default values
+            "proposer_completion_tokens": 0,
+            "proposer_total_tokens": 0
         }
 
-        # --- Stage 1: Propose Task (Sequential) ---
+        # --- Stage 1: Propose Task (Now with OpenAI) ---
         print(f"  Selected task type for proposer: {task_type}")
         concept_for_proposer = get_concept_to_propose() # From learning_manager
         k_examples_for_prompt = sample_from_experience_buffer(K_REFERENCE_EXAMPLES) # From learning_manager
         
         stochastic_seed_for_proposer = None
         if random.random() < STOCHASTIC_PERTURBATION_PROBABILITY:
-            if learned_concepts_cache and random.random() < 0.5: # Prefer seeds from learned concepts if available
-                stochastic_seed_for_proposer = random.choice(learned_concepts_cache).get("task_title", random.choice(["exploring fundamental limits of AI understanding"]))
+            # Prefer seeds from learned concepts if available and they have a task_title
+            # Fallback to a generic seed if cache is empty or no title found
+            potential_seeds = [lc.get("task_title") for lc in learned_concepts_cache if lc.get("task_title")]
+            if potential_seeds and random.random() < 0.75: # Higher chance to use learned concept if available
+                stochastic_seed_for_proposer = random.choice(potential_seeds)
             else:
-                stochastic_seed_for_proposer = random.choice(["exploring fundamental limits of AI understanding"])
+                # If no learned concepts with titles or by random chance, use a generic seed from a predefined list
+                generic_seeds = [
+                    "exploring fundamental limits of AI understanding", 
+                    "the nature of consciousness in artificial entities",
+                    "novel frameworks for interdisciplinary knowledge synthesis",
+                    "redefining creativity in the age of advanced AI",
+                    "ethical dilemmas in a world with superintelligent machines"
+                ]
+                stochastic_seed_for_proposer = random.choice(generic_seeds)
             print(f"  Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
 
-        proposer_user_question = get_base_proposer_prompt(
-            task_type,
+        # This function now effectively prepares the user_prompt for the OpenAI Proposer
+        proposer_full_prompt_for_openai = get_proposer_prompt_for_task_type(
+            task_type, # Pass the string task_type key
             k_examples_for_prompt,
-            main_concept=concept_for_proposer, # Pass concept_for_proposer as main_concept
+            main_concept=concept_for_proposer,
             stochastic_seed=stochastic_seed_for_proposer
         )
-        if OLLAMA_ENABLED:
-            # refine_prompt_with_gemma has its own logging for start/success/failure
-            refined_proposer_prompt = refine_prompt_with_gemma(proposer_user_question, "Propose a new challenging task/question")
-            if refined_proposer_prompt and refined_proposer_prompt != proposer_user_question:
-                proposer_user_question = refined_proposer_prompt
         
-        # Log the exact prompt being sent to the main Proposer LLM
-        print(f"\nDEBUG: Final prompt for Proposer LLM ({PRIMARY_MODEL_NAME}):\n---\n{proposer_user_question}\n---")
+        if OLLAMA_ENABLED: # This block will be skipped as OLLAMA_ENABLED is False
+            # refine_prompt_with_gemma has its own logging for start/success/failure
+            print("  Attempting to refine proposer prompt with Ollama/Gemma (this step should be skipped if OLLAMA_ENABLED is False)...")
+            refined_proposer_prompt = refine_prompt_with_gemma(proposer_full_prompt_for_openai, "Propose a new challenging task/question")
+            if refined_proposer_prompt and refined_proposer_prompt != proposer_full_prompt_for_openai:
+                proposer_full_prompt_for_openai = refined_proposer_prompt
+        
+        # Log the exact prompt being sent to the OpenAI Proposer LLM
+        print(f"\nDEBUG: Final prompt for OpenAI Proposer LLM ({OPENAI_QUESTION_MODEL}):\n---\n{proposer_full_prompt_for_openai}\n---")
 
-        current_experience["proposer_response"] = await query_llm_api(
-            proposer_user_question, PROPOSER_TEMPERATURE, MAX_TOKENS_PROPOSER, 
-            PRIMARY_MODEL_NAME, PRIMARY_API_BASE_URL, PRIMARY_API_KEY
+        proposer_response_content, proposer_usage_info = await generate_openai_completion(
+            user_prompt=proposer_full_prompt_for_openai,
+            temperature=PROPOSER_TEMPERATURE,
+            max_tokens=MAX_TOKENS_PROPOSER,
+            model_name=OPENAI_QUESTION_MODEL
+            # Default system prompt from generate_openai_completion will be used
         )
-        api_calls_this_iteration += 1
+        current_experience["proposer_response"] = proposer_response_content
+        total_openai_calls += 1
+        api_calls_this_iteration += 1 # Counts calls within this iteration for throttling
 
-        current_task_core_data = parse_json_from_answer(extract_from_answer_tag(current_experience["proposer_response"], task_type))
+        if proposer_usage_info:
+            current_experience["proposer_prompt_tokens"] = proposer_usage_info.get("prompt_tokens", 0)
+            current_experience["proposer_completion_tokens"] = proposer_usage_info.get("completion_tokens", 0)
+            current_experience["proposer_total_tokens"] = proposer_usage_info.get("total_tokens", 0)
+            total_openai_prompt_tokens += current_experience["proposer_prompt_tokens"]
+            total_openai_completion_tokens += current_experience["proposer_completion_tokens"]
+        
+        # Check if proposer failed
+        if not current_experience["proposer_response"]:
+            print("  ERROR: Proposer LLM (OpenAI) failed to generate a response. Skipping this iteration.")
+            failed_experiences += 1
+            # Optional: Add to a list of failed experiences or log more details
+            # Simple sleep before next iteration to avoid tight loop on persistent failure
+            await asyncio.sleep(MIN_ITER_SLEEP * 5) 
+            continue # Skip to next iteration
 
+        current_task_core_data = parse_json_from_answer(extract_from_answer_tag(current_experience["proposer_response"]))
         if not current_task_core_data or not isinstance(current_task_core_data, dict):
             print("  Proposer failed to generate valid task JSON. Skipping iteration.")
             # Log minimal experience for failure analysis if desired
@@ -364,9 +404,24 @@ async def main():
     except Exception as e:
         print(f"An unexpected error occurred while saving data: {e}")
 
-    print("\n--- Finished ---")
-    print(f"Total successful experiences in buffer: {len(experience_buffer)}")
-    print(f"Total concepts in learned_concepts_cache: {len(learned_concepts_cache)}")
+    print("\n--- Script Execution Summary ---")
+    script_end_time = time.monotonic()
+    total_runtime_seconds = script_end_time - script_start_time
+    print(f"Total Runtime: {total_runtime_seconds:.2f} seconds")
+    print(f"Total Iterations: {NUM_ITERATIONS}")
+    print(f"Successful Experiences (logged based on threshold): {successful_experiences}")
+    print(f"Failed/Partial Experiences: {failed_experiences}")
+    
+    print("\n--- API Call & Token Usage Summary ---")
+    print(f"OpenAI API Calls: {total_openai_calls}")
+    print(f"  Total OpenAI Prompt Tokens: {total_openai_prompt_tokens}")
+    print(f"  Total OpenAI Completion Tokens: {total_openai_completion_tokens}")
+    print(f"  Total OpenAI Tokens: {total_openai_prompt_tokens + total_openai_completion_tokens}")
+    print(f"Novita (or similar primary provider) API Calls: {total_novita_calls}")
+    # Token details for Novita are not returned by its API, so not tracked here.
+
+    print(f"\nTotal successful experiences in final buffer: {len(experience_buffer)}")
+    print(f"Total concepts in final learned_concepts_cache: {len(learned_concepts_cache)}")
 
 if __name__ == "__main__":
     print("********************************************************************************")

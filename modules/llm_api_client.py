@@ -3,7 +3,7 @@ import os
 import requests
 import time
 import json
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import openai
 from .config import (
     PRIMARY_API_KEY, 
@@ -56,48 +56,89 @@ async def query_llm_api(user_content: str, temperature: float, max_tokens: int, 
         print(f"ERROR: An unexpected error occurred with {model_name}: {e}")
     return None # Return None on any error
 
-# --- OpenAI Question Generation Function ---
-async def generate_question_with_openai(prompt_for_question: str, temperature: float, max_tokens: int) -> Optional[str]:
-    """Generates a question using the configured OpenAI model."""
-    if OPENAI_API_KEY == "<Your_OpenAI_API_Key_HERE>" or not OPENAI_API_KEY:
-        print(f"ERROR: OpenAI API Key is not set. Please set OPENAI_API_KEY environment variable.")
-        return None
-    if not OPENAI_QUESTION_MODEL:
-        print(f"Warning: OPENAI_QUESTION_MODEL is not set in config. Skipping OpenAI question generation.")
-        return None
+# --- OpenAI Completion Function ---
+async def generate_openai_completion(user_prompt: str, temperature: float, max_tokens: int, model_name: str, system_prompt_content: Optional[str] = None) -> Tuple[Optional[str], Optional[Dict[str, int]]]:
+    """Generates a completion from OpenAI's chat API with a generic or custom system prompt, returning content and usage.
+    
+    Args:
+        user_prompt: The prompt for the user message.
+        temperature: The sampling temperature.
+        max_tokens: The maximum number of tokens to generate.
+        model_name: The OpenAI model to use.
+        system_prompt_content: Optional custom system prompt. If None, a default helpful assistant prompt is used.
+        
+    Returns:
+        A tuple containing the response content (str) and a usage dictionary (dict) or (None, None) on error.
+    """
+    if not OPENAI_API_KEY or OPENAI_API_KEY == "<Your_OpenAI_API_Key_HERE>":
+        print("FATAL: OPENAI_API_KEY is not set. Please set the environment variable or update config.py.")
+        return None, None
 
-    client = openai.AsyncOpenAI(
-        api_key=OPENAI_API_KEY,
-        base_url=OPENAI_DEFAULT_API_BASE_URL, # Using standard OpenAI base URL
-    )
+    final_system_prompt = system_prompt_content if system_prompt_content else "You are a helpful AI assistant that follows instructions precisely and returns outputs in the requested format."
+
     try:
-        chat_completion = await client.chat.completions.create(
-            model=OPENAI_QUESTION_MODEL,
+        client = openai.AsyncOpenAI(
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_DEFAULT_API_BASE_URL, # Using standard OpenAI base URL
+        )
+        print(f"  Sending request to OpenAI model: {model_name} (Temp: {temperature}, Max Tokens: {max_tokens})")
+        print(f"  OpenAI System Prompt: {final_system_prompt[:100]}...")
+        print(f"  OpenAI User Prompt: {user_prompt[:150]}...")
+
+        response = await client.chat.completions.create(
+            model=model_name,
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are an AI assistant specializing in formulating exceptionally novel and unconventional questions. Your primary goal is to:\n1. Generate a single, concise question that pushes the boundaries of typical inquiry—a question a human might not readily conceive. This question should spark deep, imaginative, or abstract exploration.\n2. On a new line immediately following the question, provide 1-2 sentences of additional context or elaboration that expands on the question, offering a slightly deeper angle or hint without revealing any part of an answer.\n\nOutput *only* the question and its brief expansion in this two-part format. Do not include any other preamble, explanation, or conversational filler. For example:\nWhat if gravity had a memory?\nThis could explore how past configurations of mass might influence current gravitational interactions, leading to unexpected cosmic structures or phenomena."
-                },
-                {
-                    "role": "user",
-                    "content": prompt_for_question,
-                }
+                {"role": "system", "content": final_system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
             temperature=temperature,
             max_tokens=max_tokens,
+            # top_p=1, # top_p can be an alternative to temperature
+            # frequency_penalty=0,
+            # presence_penalty=0
         )
-        response_content = chat_completion.choices[0].message.content
-        # print(f"DEBUG: OpenAI Question ({OPENAI_QUESTION_MODEL}): {response_content}") # Optional
-        return response_content.strip()
+        
+        content = response.choices[0].message.content
+        usage = response.usage
+        usage_dict = {
+            "prompt_tokens": usage.prompt_tokens if usage else 0,
+            "completion_tokens": usage.completion_tokens if usage else 0,
+            "total_tokens": usage.total_tokens if usage else 0
+        }
+        print(f"  OpenAI Response received. Prompt tokens: {usage_dict['prompt_tokens']}, Completion tokens: {usage_dict['completion_tokens']}")
+        return content.strip() if content else None, usage_dict
+
     except openai.APIConnectionError as e:
-        print(f"ERROR: OpenAI API Connection Error: {e}")
+        print(f"OpenAI APIConnectionError: {e}")
     except openai.RateLimitError as e:
-        print(f"ERROR: OpenAI API Rate Limit Error: {e}.")
+        print(f"OpenAI RateLimitError: {e}")
     except openai.APIStatusError as e:
-        print(f"ERROR: OpenAI API Status Error (Status: {e.status_code}): {e.response}")
+        print(f"OpenAI APIStatusError: {e.status_code} - {e.response}")
     except Exception as e:
-        print(f"ERROR: An unexpected error occurred with OpenAI question generation: {e}")
-    return None
+        print(f"An unexpected error occurred with OpenAI API: {e}")
+    return None, None
+
+# --- OpenAI Question Generation Function ---
+async def generate_question_with_openai(prompt_for_question: str, temperature: float, max_tokens: int) -> Tuple[Optional[str], Optional[Dict[str, int]]]:
+    """Generates an unconventional question and context using OpenAI, returning JSON string and usage.
+    The output should be a JSON object with two keys: 'question' and 'context'.
+    """
+    system_prompt_for_question_gen = (
+        "You are an AI assistant that generates an exceptionally unconventional and thought-provoking question "
+        "and a detailed context of a few paragraphs for it. The core of the question should challenge conventional thinking, "
+        "probe epistemological boundaries, or explore uncharted intellectual territories. The context should provide sufficient background "
+        "to make the question understandable and engaging, hinting at the depth required for a meaningful answer."
+        "Your entire output MUST be a single, valid JSON object with exactly two keys: 'question' (string) and 'context' (string). "
+        "Do not add any other text or explanations before or after the JSON object."
+    )
+
+    return await generate_openai_completion(
+        user_prompt=prompt_for_question, # The user_prompt here is more of a placeholder/trigger
+        temperature=temperature,
+        max_tokens=max_tokens,
+        model_name=OPENAI_QUESTION_MODEL,
+        system_prompt_content=system_prompt_for_question_gen
+    )
 
 # --- New Ollama API Client Function ---
 def get_ollama_completion(prompt_text: str, system_prompt: str, model_name: str = OLLAMA_MODEL_NAME) -> str | None:

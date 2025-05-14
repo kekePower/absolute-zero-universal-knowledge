@@ -25,6 +25,9 @@ class Experience(TypedDict):
     proposer_temperature: float
     proposer_response: Optional[str] # Full proposer LLM response
     proposer_task_details_parsed: Optional[Dict[str, Any]] # Parsed JSON from proposer_response
+    proposer_prompt_tokens: Optional[int]
+    proposer_completion_tokens: Optional[int]
+    proposer_total_tokens: Optional[int]
     solver_model: Optional[str]
     solver_temperature: Optional[float]
     solver_user_question: Optional[str] # Full question/prompt given to solver

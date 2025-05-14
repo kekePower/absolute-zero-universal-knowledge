@@ -58,7 +58,7 @@ API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "100")) # Updated to 100 RPM
 MIN_ITER_SLEEP = 0.2
 
 # New Ollama/Gemma-3 Configuration
-OLLAMA_ENABLED = True  # Enable/disable Ollama integration
+OLLAMA_ENABLED = False  # Enable/disable Ollama integration
 OLLAMA_API_BASE_URL = "http://localhost:11434/api"  # Default Ollama API endpoint
 OLLAMA_MODEL_NAME = "gemma3:4b-it-q8_0"          # Your specified Gemma-3 model
 
