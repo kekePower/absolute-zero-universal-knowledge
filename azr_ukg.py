@@ -34,7 +34,7 @@ from modules.llm_api_client import query_llm_api, get_ollama_completion, generat
 
 # Import prompt generation functions
 from modules.prompt_generators import (
-    get_proposer_prompt_for_task_type,
+    get_base_proposer_prompt, # Corrected import
     generate_solver_user_question,
     generate_critique_revise_user_question,
     generate_evaluator_user_question
@@ -179,7 +179,8 @@ async def main():
             print(f"  Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
 
         # This function now effectively prepares the user_prompt for the OpenAI Proposer
-        proposer_full_prompt_for_openai = get_proposer_prompt_for_task_type(
+        # Corrected to use get_base_proposer_prompt
+        proposer_full_prompt_for_openai = get_base_proposer_prompt(
             task_type, # Pass the string task_type key
             k_examples_for_prompt,
             main_concept=concept_for_proposer,
