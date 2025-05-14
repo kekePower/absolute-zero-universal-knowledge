@@ -36,9 +36,9 @@ TASK_TYPE_DISTRIBUTION: Dict[str, float] = {
 }
 
 MAX_TOKENS_PROPOSER = 1000
-MAX_TOKENS_SOLVER = 4500 # Might need more for panel discussions + synthesis
-MAX_TOKENS_CRITIQUE_REVISE = 4500 # For critique and revised answer
-MAX_TOKENS_EVALUATOR = 1000
+MAX_TOKENS_SOLVER = 5300 # Might need more for panel discussions + synthesis
+MAX_TOKENS_CRITIQUE_REVISE = 5300 # For critique and revised answer
+MAX_TOKENS_EVALUATOR = 5300
 PROPOSER_TEMPERATURE = 0.90 # Higher for more creative and perturbed proposals
 SOLVER_TEMPERATURE = 0.78 # Slightly higher for creative panel roles
 CRITIQUE_TEMPERATURE = 0.5
