@@ -15,7 +15,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "<Your_OpenAI_API_Key_HERE>") # SET
 OPENAI_QUESTION_MODEL = os.getenv("OPENAI_QUESTION_MODEL", "gpt-4.1-mini")
 
 # Version Configuration
-VERSION = "1.4.4"
+VERSION = "1.4.6"
 
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "30")) # Adjusted due to increased calls per iter

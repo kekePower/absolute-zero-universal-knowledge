@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.4.4: Panel of Experts, Solver Self-Critique, Stochastic Proposer Perturbations, Gemma-3 Prompt Refinement.
+# v1.4.6: Updated to use OpenAI for question generation.
 
 import json
 import random
