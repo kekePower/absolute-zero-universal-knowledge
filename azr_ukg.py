@@ -48,7 +48,7 @@ from modules.response_parsers import (
 from modules.learning_manager import (
     experience_buffer, learned_concepts_cache, concept_quality_history, # Globals
     add_to_experience_buffer, sample_from_experience_buffer, 
-    get_concept_to_propose, log_concept_quality, learn_new_concept, Experience, initialize_learning_manager, update_experience_buffer # Functions and TypedDict
+    get_concept_to_propose, log_concept_quality, learn_new_concept, Experience # Functions and TypedDict
 )
 # Import logging function
 from modules.file_logger import log_exploration_data
@@ -104,7 +104,7 @@ async def main():
     print(f"Logging Quality Threshold: {LOGGING_QUALITY_THRESHOLD}, Learned Concept Threshold: {LEARNED_CONCEPT_QUALITY_THRESHOLD}")
     print(f"Stochastic Perturbation Probability for Proposer: {STOCHASTIC_PERTURBATION_PROBABILITY*100}%")
 
-    initialize_learning_manager()
+    # initialize_learning_manager() # Removed call, globals are initialized on import
 
     total_openai_prompt_tokens = 0
     total_openai_completion_tokens = 0
