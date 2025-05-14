@@ -34,57 +34,30 @@ def extract_from_critique_revise_response(llm_full_response: Optional[str]) -> T
 
 # --- Parsing LLM's <answer> content ---
 def extract_from_answer_tag(llm_full_response: Optional[str], task_type_for_heuristic: Optional[str] = None) -> Optional[str]:
-    if not llm_full_response: return None
+    if not llm_full_response:
+        return None
 
-    # Primary regex for <answer>...</answer>
-    answer_match = re.search(r"<answer[^>]*>\s*([\s\S]+?)\s*</answer>", llm_full_response, re.IGNORECASE | re.DOTALL)
-    if answer_match: return answer_match.group(1).strip()
-
-    print(f"Warning: Could not find complete <answer>...</answer> block in response: {llm_full_response[:200]}...")
-
-    # Fallback 1: Content after the last </think> or </thought> tag
     last_think_end_pos = -1
-    for think_tag_variant in [r"</think>", r"</thought>"]:
-        for match in re.finditer(think_tag_variant, llm_full_response, re.IGNORECASE | re.DOTALL):
-            last_think_end_pos = max(last_think_end_pos, match.end())
+    # Iterate to find the end position of the *last* occurrence of </think> or </thought>
+    for think_tag_variant in [r"</think>", r"</thought>"]: # Consider making these constants
+        matches = list(re.finditer(think_tag_variant, llm_full_response, re.IGNORECASE | re.DOTALL))
+        if matches:
+            last_think_end_pos = max(last_think_end_pos, matches[-1].end())
     
     if last_think_end_pos != -1:
-        potential_answer_after_think = llm_full_response[last_think_end_pos:].strip()
-        # If this potential answer starts with <answer... (even if not closed), extract its content
-        if potential_answer_after_think.lower().startswith("<answer"):
-            content_from_start_answer = re.sub(r"^<answer[^>]*>", "", potential_answer_after_think, 1, flags=re.IGNORECASE | re.DOTALL).strip()
-            # If it also contains </answer>, truncate at that point
-            end_answer_in_extract = re.search(r"</answer>", content_from_start_answer, re.IGNORECASE | re.DOTALL)
-            if end_answer_in_extract:
-                print(f"  Fallback 1.1: Using content from <answer> tag after last </think> (and closing </answer> found): '{content_from_start_answer[:end_answer_in_extract.start()].strip()[:100]}...'")
-                return content_from_start_answer[:end_answer_in_extract.start()].strip()
-            else:
-                # No </answer> found in the extracted part, but it started with <answer... so take it all
-                print(f"  Fallback 1.2: Using content from <answer...> tag (no closing tag) after last </think>: '{content_from_start_answer[:100]}...'")
-                return content_from_start_answer
+        # Content after the last </think> or </thought> tag
+        final_answer_content = llm_full_response[last_think_end_pos:].strip()
+        if final_answer_content: 
+            # print(f"  DEBUG: Extracted answer content after last think tag: '{final_answer_content[:100]}...'" ) # Optional debug
+            return final_answer_content
         else:
-            # No <answer...> tag, but it's after </think>, so assume it's the answer
-            print(f"  Fallback 1.3: Using all content after last </think> as answer: '{potential_answer_after_think[:100]}...'")
-            return potential_answer_after_think
-
-    # Fallback 2: If the response is short and contains JSON-like structures (often task definitions or evaluations)
-    # and *doesn't* have </think> (meaning it might be a direct JSON output from a non-R1 wrapped prompt)
-    if len(llm_full_response) < 500 and ('{' in llm_full_response and '}' in llm_full_response) and not re.search(r"</think>", llm_full_response, re.IGNORECASE | re.DOTALL):
-        # This is a heuristic for direct JSON outputs when <answer> tag is missing
-        # Special check for panel discussion output if it's expected to be JSON but isn't wrapped
-        if task_type_for_heuristic == "panel_discussion_challenge" and not llm_full_response.strip().startswith("{"):
-            pass # Don't apply this heuristic if panel discussion isn't starting with JSON
-        else:
-            print(f"  Fallback 2: Assuming short response with JSON-like content is the answer: {llm_full_response[:100]}...")
-            cleaned_response = llm_full_response.strip()
-            # Remove potential markdown ```json ... ``` wrapper if present
-            markdown_match = re.match(r"^```json\s*([\s\S]+?)\s*```$", cleaned_response, re.DOTALL)
-            if markdown_match:
-                cleaned_response = markdown_match.group(1).strip()
-            return cleaned_response
-
-    print(f"  All fallbacks failed to extract a clear answer from: {llm_full_response[:200]}...")
-    return None
+            # This case means </think> was at the very end or only whitespace followed.
+            print(f"Warning: Found '</think>' tag, but no substantial content followed. Response snippet: {llm_full_response[-100:]}...")
+            return "" # Return empty string if think tag was last and no content followed
+    else:
+        # No </think> or </thought> tag found
+        print(f"Warning: No '</think>' or '</thought>' tag found. Returning entire response. Response snippet: {llm_full_response[:200]}...")
+        return llm_full_response.strip() # Return the full response, stripped, if no think tag
 
 def _fix_json_string(json_str: str) -> str:
     # Replace Python-style booleans/None with JSON style

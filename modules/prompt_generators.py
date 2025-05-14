@@ -6,9 +6,8 @@ from .config import PRIMARY_MODEL_NAME # Needed for generate_evaluator_user_ques
 R1_PROMPT_WRAPPER = (
     "A conversation between User and Assistant. The user asks a question, and the Assistant solves it. "
     "The assistant first outlines the reasoning process in detail within <think> </think> tags, "
-    "and then provides the final answer within <answer> </answer> tags. "
-    "The entire response must end with </answer>.\n"
-    "Example: <think> My detailed plan is to first A, then B, considering C. </think> <answer> final answer here </answer>.\n\n"
+    "and then provides the final answer directly after the closing </think> tag.\n"
+    "Example: <think> My detailed plan is to first A, then B, considering C. </think> final answer here.\n\n"
     "User: {question}\n\n"
     "Assistant: "
 )
@@ -25,7 +24,7 @@ Your goal is to propose a task that is novel and has clearly defined success cri
 
 Follow these structural guidelines meticulously:
 1.  Think Step-by-Step: First, engage in a brief <think> block to outline your thought process for creating the task. This should include considerations for novelty, clarity of success criteria, and adherence to the task type. State the target novelty level you are aiming for (0.0 to 1.0).
-2.  Provide JSON Output: After the <think> block, provide your response exclusively within an <answer> block. The content of the <answer> block MUST be a single, valid JSON object.
+2.  Provide JSON Output: Immediately after the closing </think> tag, provide your response as a single, valid JSON object.
 
 JSON Structure Requirements:
 - "task_description": A detailed description of the task.
@@ -34,20 +33,19 @@ JSON Structure Requirements:
 - "novelty_level": An estimated novelty score from 0.0 (mundane) to 1.0 (paradigm-shifting).
 - "task_type_generated": Echo back the precise task type you were asked to generate (e.g., '{task_type_description}').
 
-CRITICAL: The content within the <answer> tags MUST be a raw JSON string. DO NOT wrap it in Markdown code blocks (e.g., ```json ... ```). The JSON must start with {json_open_brace} and end with {json_close_brace} directly within the <answer> tags.
+CRITICAL: The JSON object MUST immediately follow the closing </think> tag. It MUST be a raw JSON string. DO NOT wrap it in Markdown code blocks (e.g., ```json ... ```). The JSON must start with {json_open_brace} and end with {json_close_brace}.
 Ensure that all string values within the JSON (especially 'task_description' and 'success_criteria') are plain text and contain NO MARKDOWN formatting.
 
 Here's an example of the complete output structure (content is illustrative):
 <think>
 I will design a '{task_type_description}' task. My aim is a novelty level of 0.7. I need to ensure the success criteria are very specific and test for deep understanding. The domain tags should be relevant to the problem's core.
-</think><answer>{json_open_brace}
+</think>{json_open_brace}
   "task_description": "(A detailed description of the novel task, explicitly related to '{task_type_description}')...",
   "success_criteria": "(Clear, measurable, and unambiguous criteria for evaluating a solution. This should detail what a successful response must include and how it will be judged)...",
   "domain_tags": ["relevant_tag_1", "relevant_tag_2", "interdisciplinary_tag"],
   "novelty_level": 0.7,
   "task_type_generated": "(Must be exactly '{task_type_description}')"
 {json_close_brace}
-</answer>
 """
     return prompt
 
@@ -149,8 +147,8 @@ def generate_solver_user_question(task_type: str, task_data: Dict[str, Any]) -> 
         prompt += "Provide your solution, ensuring it directly addresses all aspects of the task description and meets the success criteria. "
         prompt += "Structure your answer clearly."
     
-    prompt += "\nRemember to use the <think></think> and <answer></answer> tags as demonstrated in the initial system prompt."
-    prompt += "\nVERY IMPORTANT: Ensure all output is plain text without any Markdown formatting within the <think> and <answer> tags."
+    prompt += "\nRemember to use the <think></think> tags as demonstrated in the initial system prompt."
+    prompt += "\nVERY IMPORTANT: Ensure all output is plain text without any Markdown formatting within the <think> tags."
     return R1_PROMPT_WRAPPER.format(question=prompt)
 
 
