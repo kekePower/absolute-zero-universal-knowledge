@@ -205,6 +205,7 @@ async def main():
             # Default system prompt from generate_openai_completion will be used
         )
         current_experience["proposer_response"] = proposer_response_content
+        print(f"DEBUG: Raw Proposer (OpenAI) response:\n{proposer_response_content}\n---")
         total_openai_calls += 1
         api_calls_this_iteration += 1 # Counts calls within this iteration for throttling
 
@@ -224,10 +225,16 @@ async def main():
             await asyncio.sleep(MIN_ITER_SLEEP * 5) 
             continue # Skip to next iteration
 
-        current_task_core_data = parse_json_from_answer(extract_from_answer_tag(current_experience["proposer_response"]))
+        extracted_proposer_content = extract_from_answer_tag(current_experience["proposer_response"]) # ADDED for debug
+        print(f"DEBUG: Extracted Proposer content by extract_from_answer_tag:\n{extracted_proposer_content}\n---") # ADDED
+
+        current_task_core_data = parse_json_from_answer(extracted_proposer_content) # MODIFIED to use var
+        print(f"DEBUG: Parsed Proposer JSON (current_task_core_data):\n{current_task_core_data}\n---") # ADDED
+
         if not current_task_core_data or not isinstance(current_task_core_data, dict):
-            print("  Proposer failed to generate valid task JSON. Skipping iteration.")
+            print("  ERROR: Proposer failed to generate valid task JSON (current_task_core_data is None or not a dict). Skipping iteration.") # MODIFIED for clarity
             # Log minimal experience for failure analysis if desired
+            current_experience["failure_reason"] = "Proposer JSON parsing failed"
             add_to_experience_buffer(current_experience) 
             await asyncio.sleep(MIN_ITER_SLEEP)
             continue
@@ -246,6 +253,7 @@ async def main():
         current_experience["solver_model"] = PRIMARY_MODEL_NAME # Assuming primary for now
         current_experience["solver_temperature"] = SOLVER_TEMPERATURE
 
+        print(f"DEBUG: Attempting Solver API call(s) for task: {current_experience.get('task_description', 'N/A')[:50]}...") # ADDED
         solver_tasks = []
         num_solver_attempts = N_SOLVER_ROLLOUTS_FOR_PROPOSER if task_type == "self_critique_and_revision" else 1
         
@@ -255,15 +263,19 @@ async def main():
         
         solver_responses = await asyncio.gather(*solver_tasks)
         current_experience["solver_response"] = solver_responses[0] # Store first response for simplicity in log
+        print(f"DEBUG: Raw Solver response:\n{solver_responses[0]}\n---") # ADDED
         api_calls_this_iteration += num_solver_attempts
         main_final_answer_from_solver = extract_from_answer_tag(solver_responses[0], task_type)
+        print(f"DEBUG: Extracted Solver answer by extract_from_answer_tag:\n{main_final_answer_from_solver}\n---") # ADDED
 
         if not main_final_answer_from_solver:
-            print("  Solver failed to generate an answer. Skipping further stages.")
+            print("  ERROR: Solver failed to generate a usable answer or answer parsing failed. Skipping further stages.") # MODIFIED for clarity
             # Log current state of experience
+            current_experience["failure_reason"] = "Solver output parsing failed"
             add_to_experience_buffer(current_experience)
             await asyncio.sleep(MIN_ITER_SLEEP)
             continue
+        
         print(f"  Solver initial answer: {main_final_answer_from_solver[:100]}...")
 
         # --- Stage 3: Critique and Revise (Main Path, if applicable) ---
