@@ -2,7 +2,7 @@ import os
 from typing import Dict, List
 
 # --- Configuration ---
-# Primary LLM Configuration
+# Primary LLM Configuration (Novita)
 PRIMARY_API_BASE_URL = os.getenv("PRIMARY_API_BASE_URL", "https://api.novita.ai/v3/openai")
 PRIMARY_API_KEY = os.getenv("PRIMARY_API_KEY", "<Your_API_Key_HERE>") # SET THIS!
 PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # Proposer, Solver, Critiquer
@@ -10,8 +10,12 @@ PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # P
 # Secondary LLM Configuration (Evaluator - uses Primary API credentials)
 SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Set to "" or None to disable.
 
+# OpenAI Configuration (for Question Generation)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "<Your_OpenAI_API_Key_HERE>") # SET THIS!
+OPENAI_QUESTION_MODEL = os.getenv("OPENAI_QUESTION_MODEL", "gpt-4.1-mini")
+
 # Version Configuration
-VERSION = "1.4.3"
+VERSION = "1.4.4"
 
 # General Configuration
 NUM_ITERATIONS = int(os.getenv("NUM_ITERATIONS", "30")) # Adjusted due to increased calls per iter
@@ -47,10 +51,10 @@ LEARNED_CONCEPT_QUALITY_THRESHOLD = float(os.getenv("LEARNED_CONCEPT_QUALITY_THR
 COMPOSITE_CONCEPT_PROBABILITY = 0.2
 MAX_LEARNED_CONCEPTS = 30
 STOCHASTIC_PERTURBATION_PROBABILITY = 0.15 # Chance to inject random seed into proposer
-RANDOM_SEED_CONCEPTS: List[str] = ["entropy", "fractals", "emergence", "symbiosis", "quantum entanglement", "neural networks", "game theory", "dark matter", "consciousness", "algorithmic bias", "terraforming", "bio-mimicry"]
+# RANDOM_SEED_CONCEPTS: List[str] = ["entropy", "fractals", "emergence", "symbiosis", "quantum entanglement", "neural networks", "game theory", "dark matter", "consciousness", "algorithmic bias", "terraforming", "bio-mimicry"]
 
 # API Throttling Configuration
-API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "10"))
+API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "100")) # Updated to 100 RPM
 MIN_ITER_SLEEP = 0.2
 
 # New Ollama/Gemma-3 Configuration

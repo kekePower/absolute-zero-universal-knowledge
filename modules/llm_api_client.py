@@ -5,9 +5,15 @@ import time
 import json
 from typing import Optional, Dict, Any, List
 import openai
-from .config import (PRIMARY_API_KEY, 
-                     OLLAMA_ENABLED, OLLAMA_API_BASE_URL, OLLAMA_MODEL_NAME, 
-                     API_RPM_LIMIT, MIN_ITER_SLEEP)
+from .config import (
+    PRIMARY_API_KEY, 
+    OLLAMA_ENABLED, OLLAMA_API_BASE_URL, OLLAMA_MODEL_NAME, 
+    API_RPM_LIMIT, MIN_ITER_SLEEP,
+    OPENAI_API_KEY, OPENAI_QUESTION_MODEL
+)
+
+# Standard OpenAI API Base URL
+OPENAI_DEFAULT_API_BASE_URL = "https://api.openai.com/v1"
 
 # --- Async API Client ---
 async def query_llm_api(user_content: str, temperature: float, max_tokens: int, model_name: str, api_base_url: str, api_key: str) -> Optional[str]:
@@ -49,6 +55,49 @@ async def query_llm_api(user_content: str, temperature: float, max_tokens: int, 
     except Exception as e:
         print(f"ERROR: An unexpected error occurred with {model_name}: {e}")
     return None # Return None on any error
+
+# --- OpenAI Question Generation Function ---
+async def generate_question_with_openai(prompt_for_question: str, temperature: float, max_tokens: int) -> Optional[str]:
+    """Generates a question using the configured OpenAI model."""
+    if OPENAI_API_KEY == "<Your_OpenAI_API_Key_HERE>" or not OPENAI_API_KEY:
+        print(f"ERROR: OpenAI API Key is not set. Please set OPENAI_API_KEY environment variable.")
+        return None
+    if not OPENAI_QUESTION_MODEL:
+        print(f"Warning: OPENAI_QUESTION_MODEL is not set in config. Skipping OpenAI question generation.")
+        return None
+
+    client = openai.AsyncOpenAI(
+        api_key=OPENAI_API_KEY,
+        base_url=OPENAI_DEFAULT_API_BASE_URL, # Using standard OpenAI base URL
+    )
+    try:
+        chat_completion = await client.chat.completions.create(
+            model=OPENAI_QUESTION_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an AI assistant specializing in formulating exceptionally novel and unconventional questions. Your primary goal is to:\n1. Generate a single, concise question that pushes the boundaries of typical inquiry—a question a human might not readily conceive. This question should spark deep, imaginative, or abstract exploration.\n2. On a new line immediately following the question, provide 1-2 sentences of additional context or elaboration that expands on the question, offering a slightly deeper angle or hint without revealing any part of an answer.\n\nOutput *only* the question and its brief expansion in this two-part format. Do not include any other preamble, explanation, or conversational filler. For example:\nWhat if gravity had a memory?\nThis could explore how past configurations of mass might influence current gravitational interactions, leading to unexpected cosmic structures or phenomena."
+                },
+                {
+                    "role": "user",
+                    "content": prompt_for_question,
+                }
+            ],
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        response_content = chat_completion.choices[0].message.content
+        # print(f"DEBUG: OpenAI Question ({OPENAI_QUESTION_MODEL}): {response_content}") # Optional
+        return response_content.strip()
+    except openai.APIConnectionError as e:
+        print(f"ERROR: OpenAI API Connection Error: {e}")
+    except openai.RateLimitError as e:
+        print(f"ERROR: OpenAI API Rate Limit Error: {e}.")
+    except openai.APIStatusError as e:
+        print(f"ERROR: OpenAI API Status Error (Status: {e.status_code}): {e.response}")
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred with OpenAI question generation: {e}")
+    return None
 
 # --- New Ollama API Client Function ---
 def get_ollama_completion(prompt_text: str, system_prompt: str, model_name: str = OLLAMA_MODEL_NAME) -> str | None:

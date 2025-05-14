@@ -2,7 +2,7 @@
 # This script implements a paradigm to generate tasks/questions
 # that a human might not typically formulate, spanning any field of knowledge,
 # and then has an LLM attempt to answer them.
-# v1.4.1: Panel of Experts, Solver Self-Critique, Stochastic Proposer Perturbations.
+# v1.4.4: Panel of Experts, Solver Self-Critique, Stochastic Proposer Perturbations, Gemma-3 Prompt Refinement.
 
 import json
 import random
@@ -24,12 +24,13 @@ from modules.config import (
     REVISE_TEMPERATURE, EVALUATOR_TEMPERATURE, LOGGING_QUALITY_THRESHOLD,
     LEARNED_CONCEPT_QUALITY_THRESHOLD, COMPOSITE_CONCEPT_PROBABILITY,
     MAX_LEARNED_CONCEPTS, STOCHASTIC_PERTURBATION_PROBABILITY,
-    RANDOM_SEED_CONCEPTS, API_RPM_LIMIT, MIN_ITER_SLEEP,
-    OLLAMA_ENABLED, OLLAMA_MODEL_NAME, GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT
+    API_RPM_LIMIT, MIN_ITER_SLEEP, 
+    OLLAMA_ENABLED, OLLAMA_MODEL_NAME, GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT,
+    OPENAI_QUESTION_MODEL # For logging/debug if needed, client handles API Key
 )
 
 # Import the LLM API client function
-from modules.llm_api_client import query_llm_api, get_ollama_completion
+from modules.llm_api_client import query_llm_api, get_ollama_completion, generate_question_with_openai # Added generate_question_with_openai
 
 # Import prompt generation functions
 from modules.prompt_generators import (
@@ -155,9 +156,9 @@ async def main():
         stochastic_seed_for_proposer = None
         if random.random() < STOCHASTIC_PERTURBATION_PROBABILITY:
             if learned_concepts_cache and random.random() < 0.5: # Prefer seeds from learned concepts if available
-                stochastic_seed_for_proposer = random.choice(learned_concepts_cache).get("task_title", random.choice(RANDOM_SEED_CONCEPTS))
+                stochastic_seed_for_proposer = random.choice(learned_concepts_cache).get("task_title", random.choice(["exploring fundamental limits of AI understanding"]))
             else:
-                stochastic_seed_for_proposer = random.choice(RANDOM_SEED_CONCEPTS)
+                stochastic_seed_for_proposer = random.choice(["exploring fundamental limits of AI understanding"])
             print(f"  Applying stochastic seed to proposer: '{stochastic_seed_for_proposer}'")
 
         proposer_user_question = get_base_proposer_prompt(
