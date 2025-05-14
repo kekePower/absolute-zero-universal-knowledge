@@ -5,10 +5,10 @@ from typing import Dict, List
 # Primary LLM Configuration (Novita)
 PRIMARY_API_BASE_URL = os.getenv("PRIMARY_API_BASE_URL", "https://api.novita.ai/v3/openai")
 PRIMARY_API_KEY = os.getenv("PRIMARY_API_KEY", "<Your_API_Key_HERE>") # SET THIS!
-PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "deepseek/deepseek-r1") # Proposer, Solver, Critiquer
+PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Changed: Now Qwen3 for Solver
 
 # Secondary LLM Configuration (Evaluator - uses Primary API credentials)
-SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8") # Set to "" or None to disable.
+SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "deepseek/deepseek-v3-0324") # Changed: Now DeepSeek for Evaluator/Validator. Set to "" or None to disable.
 
 # OpenAI Configuration (for Question Generation)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "<Your_OpenAI_API_Key_HERE>") # SET THIS!
