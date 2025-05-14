@@ -62,11 +62,35 @@ def generate_axioms_task_user_question(k_examples: List[Dict[str, Any]], use_com
         description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
     return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
 
-def generate_epistemological_probe_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
-    description = "Epistemological Boundary Probes: Design a thought experiment or a series of questions that probe the limits of current knowledge or challenge foundational assumptions in a specific domain."
+def generate_epistemological_probe_task_user_question(
+    k_examples: List[Dict[str, Any]], 
+    use_composite: bool = False, 
+    stochastic_seed: Optional[str] = None # This IS the seed/concept from LM or OpenAI
+) -> str:
+    
+    base_task_guidance = """Your goal is to design a highly specific and challenging 'Epistemological Boundary Probe' task that probes the limits of knowledge or challenges foundational assumptions.
+
+To do this, invent a detailed, deliberately ambiguous scenario (e.g., a fictional historical event, a scientific anomaly, a philosophical paradox). This scenario should:
+1. Involve incomplete or contradictory 'evidence' or 'information.'
+2. Compel the solver to construct multiple, potentially mutually incompatible, interpretations or narratives.
+3. Require the solver to explicitly articulate the epistemic assumptions underpinning each interpretation/narrative.
+4. Necessitate an analysis of key points of disagreement between interpretations.
+
+The task should push the boundaries of what constitutes 'knowledge' in a given context and demand a nuanced understanding of the limitations of inquiry. Focus on creating a rich, specific scenario that demands rigorous critical evaluation of knowledge claims.
+"""
+    
+    # If a stochastic seed (concept/question from LM or OpenAI) is provided, prepend it.
+    if stochastic_seed:
+        description = f"Using the following seed idea or question to inspire your generation: '{stochastic_seed}'.\n\n{base_task_guidance}"
+    else:
+        description = base_task_guidance
+        
     if use_composite and k_examples:
-        description += " Consider incorporating elements from these existing concepts: " + ", ".join([ex['task_description'][:50] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
-    return get_base_proposer_prompt(description, k_examples, stochastic_seed=stochastic_seed)
+        description += "\n\nWhen inventing your scenario, also consider incorporating elements or themes from these existing concepts: " + ", ".join([ex['task_description'][:70] + '...' for ex in random.sample(k_examples, min(len(k_examples), 2))])
+        
+    # The 'description' variable (now seeded) is passed as 'task_type_description' to get_base_proposer_prompt.
+    # 'stochastic_seed' is passed along, though get_base_proposer_prompt doesn't currently use it in its template.
+    return get_base_proposer_prompt(task_type_description=description, k_examples=k_examples, stochastic_seed=stochastic_seed)
 
 def generate_hypothetical_scenario_exploration_task_user_question(k_examples: List[Dict[str, Any]], use_composite: bool = False, stochastic_seed: Optional[str] = None) -> str:
     description = "Hypothetical Scenario Exploration: Develop a detailed narrative or simulation of a plausible future scenario, exploring its implications and potential ethical challenges."

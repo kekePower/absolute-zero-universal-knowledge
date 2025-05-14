@@ -353,8 +353,18 @@ async def main():
             else: await asyncio.sleep(MIN_ITER_SLEEP)
         else: await asyncio.sleep(MIN_ITER_SLEEP)
 
+    # --- Save experience buffer to file ---
+    try:
+        with open(FINETUNING_DATA_FILE, 'w', encoding='utf-8') as f:
+            for experience_item in experience_buffer: # Assuming experience_buffer is a list of dicts
+                f.write(json.dumps(experience_item) + '\n')
+        print(f"Exploration data successfully saved to {FINETUNING_DATA_FILE}")
+    except IOError as e:
+        print(f"Error: Could not write to file {FINETUNING_DATA_FILE}. Error: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred while saving data: {e}")
+
     print("\n--- Finished ---")
-    print(f"Exploration data saved to {FINETUNING_DATA_FILE}")
     print(f"Total successful experiences in buffer: {len(experience_buffer)}")
     print(f"Total concepts in learned_concepts_cache: {len(learned_concepts_cache)}")
 
