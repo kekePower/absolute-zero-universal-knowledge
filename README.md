@@ -27,9 +27,13 @@ This project requires a specific environment configuration to operate correctly.
     *   **Enablement**: The Ollama refinement step can be toggled using the `OLLAMA_ENABLED` boolean flag in the configuration.
 
 *   **Primary LLM API Access**:
-    *   **Provider**: The script is currently configured to use Novita.ai as the primary provider for accessing models like DeepSeek and Qwen (configurable via `PRIMARY_MODEL_NAME` in `modules/config.py`).
-    *   **API Key**: A valid API key from your chosen provider is necessary. This should be set as the `PRIMARY_API_KEY` environment variable.
-    *   **Adaptability**: While Novita.ai is the default, the `modules/llm_api_client.py` can be adapted to support other LLM providers by modifying the API call structure and authentication.
+    *   **Provider**: The script uses Novita.ai as the primary provider, leveraging its increased 100 RPM limit for parallel API calls.
+    *   **Model Configuration**: The default models are:
+        *   Solver (PRIMARY_MODEL_NAME): Qwen3 (qwen/qwen3-235b-a22b-fp8)
+        *   Evaluator (SECONDARY_MODEL_NAME): DeepSeek (deepseek/deepseek-v3-0324)
+        *   Proposer: OpenAI gpt-4.1-mini
+    *   **API Key**: A valid Novita.ai API key is required and should be set as the `PRIMARY_API_KEY` environment variable.
+    *   **Performance Optimization**: For panel discussion tasks, the script now parallelizes Novita API calls using asyncio.gather, significantly improving efficiency.
 
 *   **Environment Variables (`.env` file)**:
     *   It is highly recommended to use a `.env` file in the project root to manage sensitive information and configurations. The script uses `python-dotenv` to load these variables.
@@ -83,7 +87,7 @@ The "Absolute Zero Universal Knowledge Generator" (AZR-UKG) is a Python script t
 
 The script operates through a sophisticated multi-stage process involving several LLM roles:
 
-*   **Task Generation (Proposer)**: An LLM acts as a "Proposer" to create tasks. The generation process is guided by a distribution of predefined `TASK_TYPE_DISTRIBUTION` (e.g., "synthesis of disparate paradigms," "generation of novel axioms and exploration," "epistemological boundary probes," "panel_discussion_challenge").
+*   **Task Generation (Proposer)**: An LLM acts as a "Proposer" to create tasks. The generation process is guided by a distribution of predefined `TASK_TYPE_DISTRIBUTION`. For panel discussion tasks, the system now uses OpenAI's gpt-4.1-mini to generate initial/seed questions, replacing the previous static RANDOM_SEED_CONCEPTS.
 *   **Solution Generation (Solver)**: Another LLM instance, the "Solver," attempts to provide a detailed answer to the generated task. This often involves a "think-then-answer" methodology, where the LLM first outlines its reasoning process.
 *   **Self-Critique & Revision**: The Solver's initial response can be subjected to a self-critique process, where an LLM (or the same LLM in a different role) critiques the answer, and then a revised answer is generated based on this critique.
 *   **Evaluation (Evaluator)**: A separate LLM, the "Evaluator," assesses the quality and novelty of the generated task-solution pair. This evaluation can influence what is considered a "learned concept."
