@@ -4,13 +4,34 @@ This script generates questions that we, as humans, would or could never ask and
 
 I used Google Gemini 2.5 Pro Preview 05-06 to create the script based on the [Absolute Zero](https://arxiv.org/abs/2505.03335) research paper.
 
-I'm also sure that some VERY smart people, people like you, will come along and update this script to make it even more awesome.
+## 🔥 New: Multi-LLM Provider Support
+
+We've significantly enhanced the system with comprehensive multi-LLM provider support, making it easier than ever to use different AI models from various providers. Key features include:
+
+- **Multiple Provider Support**: Out-of-the-box support for OpenAI, Anthropic, Google Gemini, Groq, Perplexity, and Ollama
+- **Unified Interface**: Consistent API for all providers
+- **Configuration Management**: Easy setup via YAML configuration
+- **Rate Limiting**: Built-in rate limiting and request queuing
+- **Custom Prompts**: Flexible system prompts for different roles
+
+📖 Check out the [HOWTO.md](HOWTO.md) for detailed instructions on customizing providers and prompts.
 
 ## Backend
 
-I'm using [Novita.ai](https://novita.ai/) to get access to DeekSeek R1, however it's possible to use any provider. I thought using R1 would be good since it's the largest OSS LLM available at the moment.
+The system now supports multiple LLM providers out of the box, with a modular architecture that makes it easy to add new providers. The default configuration uses:
 
-With a few changes, I think it'd be possible to make the script more modular so that it gets easier to use any provider and model.
+- **Proposer**: OpenAI gpt-4.1-mini
+- **Solver**: Qwen3 (qwen/qwen3-235b-a22b-fp8)
+- **Evaluator**: DeepSeek (deepseek/deepseek-v3-0324)
+
+## Getting Started
+
+1. Clone the repository
+2. Copy `config/llm_config.yaml.example` to `config/llm_config.yaml`
+3. Set your API keys as environment variables
+4. Run `python azr_ukg.py`
+
+For detailed configuration instructions, see [HOWTO.md](HOWTO.md).
 
 ## System Requirements
 
@@ -26,14 +47,15 @@ This project requires a specific environment configuration to operate correctly.
     *   **Configuration**: The Ollama API endpoint is typically `http://localhost:11434/api/generate`. This can be configured via `OLLAMA_API_BASE_URL` in your `.env` file or directly in `modules/config.py`.
     *   **Enablement**: The Ollama refinement step can be toggled using the `OLLAMA_ENABLED` boolean flag in the configuration.
 
-*   **Primary LLM API Access**:
-    *   **Provider**: The script uses Novita.ai as the primary provider, leveraging its increased 100 RPM limit for parallel API calls.
-    *   **Model Configuration**: The default models are:
-        *   Solver (PRIMARY_MODEL_NAME): Qwen3 (qwen/qwen3-235b-a22b-fp8)
-        *   Evaluator (SECONDARY_MODEL_NAME): DeepSeek (deepseek/deepseek-v3-0324)
-        *   Proposer: OpenAI gpt-4.1-mini
-    *   **API Key**: A valid Novita.ai API key is required and should be set as the `PRIMARY_API_KEY` environment variable.
-    *   **Performance Optimization**: For panel discussion tasks, the script now parallelizes Novita API calls using asyncio.gather, significantly improving efficiency.
+*   **LLM Provider Configuration**:
+    *   **Supported Providers**: The system now supports multiple LLM providers including OpenAI, Anthropic, Google Gemini, Groq, Perplexity, and Ollama.
+    *   **Default Model Configuration**:
+        *   **Proposer**: OpenAI gpt-4.1-mini
+        *   **Solver**: Qwen3 (qwen/qwen3-235b-a22b-fp8)
+        *   **Evaluator**: DeepSeek (deepseek/deepseek-v3-0324)
+    *   **API Keys**: Set the appropriate API keys as environment variables (e.g., `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
+    *   **Configuration**: Model settings are managed in `config/llm_config.yaml`
+    *   **Performance**: Built-in rate limiting and parallel request handling for optimal performance
 
 *   **Environment Variables (`.env` file)**:
     *   It is highly recommended to use a `.env` file in the project root to manage sensitive information and configurations. The script uses `python-dotenv` to load these variables.
@@ -105,6 +127,17 @@ The script operates through a sophisticated multi-stage process involving severa
 *   **Research into AI Self-Improvement**: The curriculum learning and experience feedback mechanisms are experimental approaches to AI self-improvement, where the system learns from its own outputs to generate progressively more complex or insightful content.
 *   **Understanding Complex Reasoning**: By prompting LLMs with tasks that are inherently difficult for humans to formulate or answer, the script aims to shed light on the advanced reasoning capabilities and potential failure modes of current AI models.
 *   **Speculative Exploration**: As highlighted by the disclaimer in the script, the generated content is speculative and intended for research into AI capabilities. It's a tool for exploring what's possible rather than producing validated factual knowledge.
+
+## Documentation
+
+For detailed information on customizing providers, prompts, and advanced configuration, please see:
+
+- [HOWTO.md](HOWTO.md) - Comprehensive guide to customizing LLM providers and system prompts
+- [config/llm_config.yaml](config/llm_config.yaml) - Example configuration file
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
