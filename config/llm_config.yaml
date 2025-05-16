@@ -1,0 +1,118 @@
+# LLM Provider Configuration
+# This file contains configuration for various LLM providers.
+# Environment variables can be referenced using ${VAR_NAME} syntax.
+
+# Default provider to use when none is specified
+default_provider: openai
+
+# Provider configurations
+providers:
+  # OpenAI Configuration
+  openai:
+    type: openai
+    api_key: ${OPENAI_API_KEY}  # Read from environment variable
+    default_model: gpt-4-turbo-preview
+    base_url: https://api.openai.com/v1
+    timeout: 60
+    rate_limit:
+      requests_per_minute: 3500  # 60 RPM for free tier, 3500 for pay-as-you-go
+      max_concurrent: 10
+    
+  # Anthropic Configuration
+  anthropic:
+    type: anthropic
+    api_key: ${ANTHROPIC_API_KEY}
+    default_model: claude-3-opus-20240229
+    timeout: 60
+    rate_limit:
+      requests_per_minute: 1000
+      max_concurrent: 5
+    
+  # Google Gemini Configuration
+  gemini:
+    type: gemini
+    api_key: ${GOOGLE_API_KEY}
+    default_model: gemini-pro
+    timeout: 60
+    rate_limit:
+      requests_per_minute: 60
+      max_concurrent: 5
+    
+  # Groq Configuration
+  groq:
+    type: groq
+    api_key: ${GROQ_API_KEY}
+    default_model: mixtral-8x7b-32768
+    base_url: https://api.groq.com/openai/v1
+    timeout: 60
+    rate_limit:
+      requests_per_minute: 1000  # Groq's free tier limit
+      max_concurrent: 10
+    
+  # Perplexity Configuration
+  perplexity:
+    type: perplexity
+    api_key: ${PERPLEXITY_API_KEY}
+    default_model: sonar-medium-online
+    timeout: 60
+    rate_limit:
+      requests_per_minute: 200  # Perplexity's free tier limit
+      max_concurrent: 5
+    
+  # Ollama Configuration (Local)
+  ollama:
+    type: ollama
+    default_model: llama2
+    base_url: http://localhost:11434
+    timeout: 300  # Longer timeout for local models
+    rate_limit:
+      requests_per_minute: 1000  # Local model, so higher limit
+      max_concurrent: 5
+
+# Default model configurations
+default_models:
+  # Default model for each task type
+  proposer: gpt-4.1-mini  # OpenAI's smaller model for proposal generation
+  solver: qwen/qwen3-235b-a22b-fp8  # Qwen3 for solving complex tasks
+  evaluator: deepseek/deepseek-v3-0324  # DeepSeek for evaluation
+  
+  # Model-specific settings
+  model_settings:
+    gpt-4.1-mini:
+      temperature: 0.9
+      max_tokens: 2000
+    
+    "qwen/qwen3-235b-a22b-fp8":
+      temperature: 0.7
+      max_tokens: 4000
+      top_p: 0.95
+      
+    "deepseek/deepseek-v3-0324":
+      temperature: 0.5
+      max_tokens: 4000
+      top_p: 0.9
+
+# System prompts for different roles
+system_prompts:
+  # Default system prompt for general tasks
+  default: |
+    You are a helpful AI assistant that provides accurate and thoughtful responses.
+    Think step by step and explain your reasoning clearly.
+  
+  # System prompt for the proposer role
+  proposer: |
+    You are an expert at generating creative and thought-provoking questions and tasks.
+    Your goal is to create unique challenges that test the boundaries of knowledge.
+    Be creative, specific, and avoid clichés or overly broad topics.
+  
+  # System prompt for the solver role
+  solver: |
+    You are a knowledgeable problem solver with expertise across multiple domains.
+    Provide detailed, well-reasoned answers to complex questions.
+    Break down your response into clear sections and explain your reasoning step by step.
+  
+  # System prompt for the evaluator role
+  evaluator: |
+    You are a critical thinker who evaluates the quality and accuracy of responses.
+    Provide constructive feedback, point out any inaccuracies or logical flaws,
+    and suggest improvements where needed. Be specific and objective in your evaluation.
