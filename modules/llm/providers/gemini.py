@@ -5,7 +5,8 @@ This module provides an implementation of the LLMProvider interface for Google's
 """
 from typing import Optional, Dict, Any
 import google.generativeai as genai
-from .. import LLMProvider, ProviderConfig, ProviderError
+from .base import LLMProvider, ProviderConfig, ProviderError
+from ..factory import get_factory
 
 class GeminiProvider(LLMProvider):
     """Provider for Google's Gemini models."""
@@ -74,6 +75,10 @@ class GeminiProvider(LLMProvider):
         except Exception as e:
             raise ProviderError(f"Gemini API error: {str(e)}") from e
 
-# Register the provider with the factory
-from .. import LLMFactory
-LLMFactory.register_provider("gemini", GeminiProvider)
+def register():
+    """Register this provider with the factory."""
+    from ..factory import get_factory
+    get_factory().register_provider("gemini", GeminiProvider)
+
+# Register this provider when the module is imported
+register()

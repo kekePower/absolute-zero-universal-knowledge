@@ -8,19 +8,23 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from dataclasses import dataclass, field
 
-# Core components
-from .providers import (
+# Core components - import directly from base to avoid circular imports
+from .providers.base import (
     LLMProvider,
     ProviderConfig,
-    ProviderError,
-    LLMFactory,
-    default_factory,
+    ProviderError
+)
+from .providers import (
     get_available_providers,
     create_provider as _create_provider
 )
 
+# Import factory functions
+from .factory import get_factory, set_factory
+
 # Import all providers to ensure they're registered
-from .providers import openai, anthropic, gemini, groq, perplexity, ollama
+# These imports are needed to register the providers with the factory
+from .providers import openai, anthropic, gemini, groq, perplexity, ollama  # noqa: F401
 
 # Utility functions and classes
 from .rate_limit import RateLimitConfig, RateLimiter, rate_limited
@@ -43,8 +47,8 @@ __all__ = [
     'LLMProvider',
     'ProviderConfig',
     'ProviderError',
-    'LLMFactory',
-    'default_factory',
+    'get_factory',
+    'set_factory',
     'get_available_providers',
     
     # Provider implementations

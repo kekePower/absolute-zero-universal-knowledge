@@ -6,17 +6,22 @@ This module provides an implementation of the LLMProvider interface for OpenAI's
 from typing import Optional, Dict, Any
 import openai
 from openai import AsyncOpenAI
-from .. import LLMProvider, ProviderConfig, ProviderError
+from .base import LLMProvider, ProviderConfig, ProviderError
+from ..factory import get_factory
 
 class OpenAIProvider(LLMProvider):
     """Provider for OpenAI's API."""
     
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
-        self._client = AsyncOpenAI(
-            api_key=config.api_key,
-            base_url=config.base_url or "https://api.openai.com/v1"
-        )
+        # Only initialize the client if an API key is provided
+        if config.api_key:
+            self._client = AsyncOpenAI(
+                api_key=config.api_key,
+                base_url=config.base_url or "https://api.openai.com/v1"
+            )
+        else:
+            self._client = None
     
     @property
     def name(self) -> str:
@@ -44,8 +49,14 @@ class OpenAIProvider(LLMProvider):
             Generated text from the model
             
         Raises:
-            ProviderError: If there's an error calling the API
+            ProviderError: If there's an error calling the API or if no API key is configured
         """
+        if not self._client:
+            raise ProviderError(
+                "OpenAI API key is not configured. "
+                "Please set the OPENAI_API_KEY environment variable or provide an API key in the config."
+            )
+            
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -53,16 +64,20 @@ class OpenAIProvider(LLMProvider):
         
         try:
             response = await self._client.chat.completions.create(
-                model=self.config.model or "gpt-4-turbo-preview",
+                model=self.config.model or "gpt-3.5-turbo",
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 **kwargs
             )
-            return response.choices[0].message.content or ""
+            return response.choices[0].message.content
         except Exception as e:
             raise ProviderError(f"OpenAI API error: {str(e)}") from e
 
-# Register the provider with the factory
-from .. import LLMFactory
-LLMFactory.register_provider("openai", OpenAIProvider)
+def register():
+    """Register this provider with the factory."""
+    from ..factory import get_factory
+    get_factory().register_provider("openai", OpenAIProvider)
+
+# Register this provider when the module is imported
+register()

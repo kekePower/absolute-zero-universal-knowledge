@@ -5,17 +5,22 @@ This module provides an implementation of the LLMProvider interface for Groq's A
 """
 from typing import Optional, Dict, Any
 import groq
-from .. import LLMProvider, ProviderConfig, ProviderError
+from .base import LLMProvider, ProviderConfig, ProviderError
+from ..factory import get_factory
 
 class GroqProvider(LLMProvider):
     """Provider for Groq's API."""
     
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
-        self._client = groq.AsyncClient(
-            api_key=config.api_key,
-            base_url=config.base_url or "https://api.groq.com/openai/v1"
-        )
+        # Only initialize the client if an API key is provided
+        if config.api_key:
+            self._client = groq.AsyncClient(
+                api_key=config.api_key,
+                base_url=config.base_url or "https://api.groq.com/openai/v1"
+            )
+        else:
+            self._client = None
     
     @property
     def name(self) -> str:
@@ -43,8 +48,14 @@ class GroqProvider(LLMProvider):
             Generated text from the model
             
         Raises:
-            ProviderError: If there's an error calling the API
+            ProviderError: If there's an error calling the API or if no API key is configured
         """
+        if not self._client:
+            raise ProviderError(
+                "Groq API key is not configured. "
+                "Please set the GROQ_API_KEY environment variable or provide an API key in the config."
+            )
+            
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -58,10 +69,14 @@ class GroqProvider(LLMProvider):
                 max_tokens=max_tokens,
                 **kwargs
             )
-            return response.choices[0].message.content or ""
+            return response.choices[0].message.content
         except Exception as e:
             raise ProviderError(f"Groq API error: {str(e)}") from e
 
-# Register the provider with the factory
-from .. import LLMFactory
-LLMFactory.register_provider("groq", GroqProvider)
+def register():
+    """Register this provider with the factory."""
+    from ..factory import get_factory
+    get_factory().register_provider("groq", GroqProvider)
+
+# Register this provider when the module is imported
+register()

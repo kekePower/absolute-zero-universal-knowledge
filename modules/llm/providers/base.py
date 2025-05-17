@@ -37,10 +37,8 @@ class LLMProvider(ABC):
     
     def _validate_config(self):
         """Validate the provider configuration."""
-        if not self.config.api_key:
-            # Some providers like Ollama might not need an API key
-            if self.config.provider_name.lower() != 'ollama':
-                raise ProviderError(f"API key is required for {self.config.provider_name} provider")
+        # API key validation is now handled by each provider's implementation
+        pass
     
     @property
     @abstractmethod
@@ -78,13 +76,12 @@ class LLMProvider(ABC):
 
 class LLMFactory:
     """Factory for creating LLM provider instances."""
+    
     _providers: Dict[str, Type[LLMProvider]] = {}
     
     @classmethod
-    def register_provider(cls, name: str, provider_class: Type[LLMProvider]):
+    def register_provider(cls, name: str, provider_class: Type[LLMProvider]) -> None:
         """Register a new provider type."""
-        if not issubclass(provider_class, LLMProvider):
-            raise TypeError(f"Provider must be a subclass of LLMProvider, got {provider_class}")
         cls._providers[name.lower()] = provider_class
     
     @classmethod
@@ -109,8 +106,8 @@ class LLMFactory:
         """
         provider_class = cls._providers.get(provider_name.lower())
         if not provider_class:
-            raise ValueError(f"Unknown provider: {provider_name}. Available providers: {list(cls._providers.keys())}")
-        
+            raise ValueError(f"Unknown provider: {provider_name}")
+            
         config = ProviderConfig(
             provider_name=provider_name,
             api_key=api_key,
@@ -121,9 +118,6 @@ class LLMFactory:
         return provider_class(config)
     
     @classmethod
-    def list_providers(cls) -> Dict[str, Type[LLMProvider]]:
+    def list_providers(cls) -> list[str]:
         """List all registered providers."""
-        return cls._providers.copy()
-
-# Create a default factory instance
-factory = LLMFactory()
+        return list(cls._providers.keys())

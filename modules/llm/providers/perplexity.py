@@ -6,7 +6,8 @@ This module provides an implementation of the LLMProvider interface for Perplexi
 from typing import Optional, Dict, Any
 import httpx
 import json
-from .. import LLMProvider, ProviderConfig, ProviderError
+from .base import LLMProvider, ProviderConfig, ProviderError
+from ..factory import get_factory
 
 class PerplexityProvider(LLMProvider):
     """Provider for Perplexity's API."""
@@ -82,6 +83,10 @@ class PerplexityProvider(LLMProvider):
             except Exception as e:
                 raise ProviderError(f"Error calling Perplexity API: {str(e)}") from e
 
-# Register the provider with the factory
-from .. import LLMFactory
-LLMFactory.register_provider("perplexity", PerplexityProvider)
+def register():
+    """Register this provider with the factory."""
+    from ..factory import get_factory
+    get_factory().register_provider("perplexity", PerplexityProvider)
+
+# Register this provider when the module is imported
+register()

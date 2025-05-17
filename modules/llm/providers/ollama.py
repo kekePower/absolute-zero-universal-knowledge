@@ -7,7 +7,8 @@ from typing import Optional, Dict, Any
 import httpx
 import json
 from urllib.parse import urljoin
-from .. import LLMProvider, ProviderConfig, ProviderError
+from .base import LLMProvider, ProviderConfig, ProviderError
+from ..factory import get_factory
 
 class OllamaProvider(LLMProvider):
     """Provider for local Ollama models."""
@@ -83,6 +84,10 @@ class OllamaProvider(LLMProvider):
             except Exception as e:
                 raise ProviderError(f"Error calling Ollama API: {str(e)}") from e
 
-# Register the provider with the factory
-from .. import LLMFactory
-LLMFactory.register_provider("ollama", OllamaProvider)
+def register():
+    """Register this provider with the factory."""
+    from ..factory import get_factory
+    get_factory().register_provider("ollama", OllamaProvider)
+
+# Register this provider when the module is imported
+register()

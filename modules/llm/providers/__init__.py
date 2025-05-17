@@ -12,9 +12,14 @@ from .base import (
     LLMProvider,
     ProviderConfig,
     ProviderError,
-    LLMFactory,
-    factory as default_factory
+    LLMFactory
 )
+
+# Import factory functions from the main module
+from ..factory import get_factory
+
+# For backward compatibility
+default_factory = get_factory()
 from . import utils
 
 # Import all provider modules to ensure they're registered
@@ -31,8 +36,8 @@ __all__ = [
     'LLMProvider',
     'ProviderConfig',
     'ProviderError',
-    'LLMFactory',
-    'default_factory',
+    'get_factory',
+    'set_factory',
     'get_available_providers',
     'create_provider',
     'create_provider_from_config',

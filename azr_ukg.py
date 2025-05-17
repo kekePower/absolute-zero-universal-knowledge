@@ -15,18 +15,20 @@ from typing_extensions import TypedDict
 
 # Import configurations
 from modules.config import (
+    ConfigError, ProviderConfig, ModelConfig, LLMConfig,
+    get_config, load_config,
     PRIMARY_API_BASE_URL, PRIMARY_API_KEY, PRIMARY_MODEL_NAME,
-    SECONDARY_MODEL_NAME, VERSION, NUM_ITERATIONS, K_REFERENCE_EXAMPLES,
-    N_SOLVER_ROLLOUTS_FOR_PROPOSER, FINETUNING_DATA_FILE,
-    TASK_TYPE_DISTRIBUTION, MAX_TOKENS_PROPOSER, MAX_TOKENS_SOLVER,
-    MAX_TOKENS_CRITIQUE_REVISE, MAX_TOKENS_EVALUATOR,
+    SECONDARY_MODEL_NAME, OPENAI_API_KEY, OPENAI_QUESTION_MODEL,
+    VERSION, NUM_ITERATIONS, K_REFERENCE_EXAMPLES, N_SOLVER_ROLLOUTS_FOR_PROPOSER,
+    FINETUNING_DATA_FILE, TASK_TYPE_DISTRIBUTION, MAX_TOKENS_PROPOSER,
+    MAX_TOKENS_SOLVER, MAX_TOKENS_CRITIQUE_REVISE, MAX_TOKENS_EVALUATOR,
     PROPOSER_TEMPERATURE, SOLVER_TEMPERATURE, CRITIQUE_TEMPERATURE,
     REVISE_TEMPERATURE, EVALUATOR_TEMPERATURE, LOGGING_QUALITY_THRESHOLD,
     LEARNED_CONCEPT_QUALITY_THRESHOLD, COMPOSITE_CONCEPT_PROBABILITY,
     MAX_LEARNED_CONCEPTS, STOCHASTIC_PERTURBATION_PROBABILITY,
     API_RPM_LIMIT, MIN_ITER_SLEEP, 
     OLLAMA_ENABLED, OLLAMA_MODEL_NAME, GEMMA_SYSTEM_PROMPT_FOR_REFINEMENT,
-    OPENAI_QUESTION_MODEL # For logging/debug if needed, client handles API Key
+    OLLAMA_API_BASE_URL
 )
 
 # Import the LLM API client function
@@ -87,10 +89,37 @@ def refine_prompt_with_gemma(original_prompt: str, task_description: str) -> str
     return original_prompt
 
 # --- Main Async Loop ---
+def check_required_config() -> bool:
+    """Check if all required configuration is present."""
+    required_configs = [
+        ("PRIMARY_API_KEY", PRIMARY_API_KEY, "<Your_API_Key_HERE>"),
+        ("PRIMARY_MODEL_NAME", PRIMARY_MODEL_NAME, ""),
+    ]
+    
+    missing_configs = []
+    for name, value, placeholder in required_configs:
+        if not value or value == placeholder:
+            missing_configs.append(name)
+    
+    if missing_configs:
+        print("\n" + "=" * 80)
+        print("ERROR: Missing required configuration:")
+        for config in missing_configs:
+            print(f"  - {config} is not set")
+        print("\nPlease set these environment variables or update the config file.")
+        print("Example:")
+        print("  export PRIMARY_API_KEY='your-api-key-here'")
+        print("  export PRIMARY_MODEL_NAME='your-model-name'")
+        print("\nFor local models like Ollama, ensure the service is running and accessible.")
+        print("=" * 80 + "\n")
+        return False
+    return True
+
 async def main():
     print(f"Starting Absolute Zero Universal Knowledge Generator (v{VERSION} - Panel, Self-Critique, Perturbations)...")
-    if PRIMARY_API_KEY == "<Your_API_Key_HERE>" or not PRIMARY_API_KEY:
-        print("FATAL: PRIMARY_API_KEY is not set. Please set the environment variable or update the script.")
+    
+    # Check for required configuration
+    if not check_required_config():
         return
 
     print(f"Primary Model (Proposer/Solver/Critiquer/Eval1): {PRIMARY_MODEL_NAME} via {PRIMARY_API_BASE_URL}")
