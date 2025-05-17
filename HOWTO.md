@@ -5,7 +5,7 @@ This guide explains how to customize LLM providers and system prompts in the Uni
 ## Table of Contents
 - [Provider Configuration](#provider-configuration)
   - [Available Providers](#available-providers)
-  - [Configuration File](#configuration-file)
+  - [Configuration](#configuration)
   - [Environment Variables](#environment-variables)
 - [System Prompts](#system-prompts)
   - [Default Prompts](#default-prompts)
@@ -24,45 +24,56 @@ This guide explains how to customize LLM providers and system prompts in the Uni
 ### Available Providers
 The system supports the following LLM providers out of the box:
 
-| Provider    | Provider Name | Required Environment Variable |
-|-------------|---------------|------------------------------|
-| OpenAI      | `openai`      | `OPENAI_API_KEY`             |
-| Anthropic   | `anthropic`   | `ANTHROPIC_API_KEY`          |
-| Google Gemini | `gemini`    | `GOOGLE_API_KEY`             |
-| Groq        | `groq`        | `GROQ_API_KEY`               |
-| Perplexity  | `perplexity`  | `PERPLEXITY_API_KEY`         |
-| Ollama      | `ollama`      | -                            |
+| Provider    | Provider Name | Required Environment Variable | Notes |
+|-------------|---------------|------------------------------|-------|
+| OpenAI      | `openai`      | `OPENAI_API_KEY`             | Used for question generation |
+| Anthropic   | `anthropic`   | `ANTHROPIC_API_KEY`          | - |
+| Google Gemini | `gemini`    | `GOOGLE_API_KEY`             | - |
+| Groq        | `groq`        | `GROQ_API_KEY`               | - |
+| Perplexity  | `perplexity`  | `PERPLEXITY_API_KEY`         | - |
+| Ollama      | `ollama`      | -                            | Local model server |
 
+### Configuration
 
-### Configuration File
-The main configuration is stored in `config/llm_config.yaml`. This file defines:
-- Default provider
-- Provider-specific settings
+The main configuration is defined in Python in `modules/config/__init__.py`. This file contains:
+- API endpoints and keys
+- Model configurations
 - System prompts
-- Rate limiting
-- Model-specific configurations
+- Rate limiting settings
+- Task type distributions
 
-Example configuration:
-```yaml
-# config/llm_config.yaml
-default_provider: openai
+Key configuration values can be overridden using environment variables. The most important ones are:
 
-providers:
-  openai:
-    type: openai
-    api_key: ${OPENAI_API_KEY}
-    default_model: gpt-4-turbo-preview
-    base_url: https://api.openai.com/v1
-    timeout: 60
-    rate_limit:
-      requests_per_minute: 3500
-      max_concurrent: 10
+```python
+# Primary LLM Configuration (Novita)
+PRIMARY_API_BASE_URL = os.getenv("PRIMARY_API_BASE_URL", "https://api.novita.ai/v3/openai")
+PRIMARY_API_KEY = os.getenv("PRIMARY_API_KEY", "<Your_API_Key_HERE>")
+PRIMARY_MODEL_NAME = os.getenv("PRIMARY_MODEL_NAME", "qwen/qwen3-235b-a22b-fp8")
 
-  anthropic:
-    type: anthropic
-    api_key: ${ANTHROPIC_API_KEY}
-    default_model: claude-3-opus-20240229
-    timeout: 60
+# Secondary LLM Configuration (Evaluator)
+SECONDARY_MODEL_NAME = os.getenv("SECONDARY_MODEL_NAME", "deepseek/deepseek-v3-0324")
+
+# OpenAI Configuration (for Question Generation)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "<Your_OpenAI_API_Key_HERE>")
+OPENAI_QUESTION_MODEL = os.getenv("OPENAI_QUESTION_MODEL", "gpt-4.1-mini")
+```
+
+### Environment Variables
+
+The following environment variables should be set before running the application:
+
+```bash
+# Required API keys
+export PRIMARY_API_KEY='your-novita-api-key'
+export OPENAI_API_KEY='your-openai-api-key'
+
+# Optional overrides
+export PRIMARY_MODEL_NAME='qwen/qwen3-235b-a22b-fp8'  # Default Solver
+export SECONDARY_MODEL_NAME='deepseek/deepseek-v3-0324'  # Default Evaluator
+export OPENAI_QUESTION_MODEL='gpt-4.1-mini'  # Default Proposer
+
+# Rate limiting
+export API_RPM_LIMIT=100  # Requests per minute
 ```
 
 ### Environment Variables
@@ -107,59 +118,83 @@ To add a custom provider:
 
 1. Create a new Python file in `modules/llm/providers/`
 2. Implement the `LLMProvider` interface
-3. Register it in `__init__.py`
+3. Add a `register()` function to register with the factory
 
 Example:
 ```python
 # modules/llm/providers/custom.py
-from .base import LLMProvider, ProviderConfig
+from .base import LLMProvider, ProviderConfig, ProviderError
+from ..factory import get_factory
 
 class CustomProvider(LLMProvider):
     def __init__(self, config: ProviderConfig):
         super().__init__(config)
         # Your initialization code
     
+    @property
+    def name(self) -> str:
+        return "custom"
+        
     async def generate(self, prompt: str, **kwargs) -> str:
         # Your generation logic
         return "Generated text"
 
-# Register the provider
-from ..registry import register_provider
-register_provider("custom", CustomProvider)
+def register():
+    """Register this provider with the factory."""
+    get_factory().register_provider("custom", CustomProvider)
+
+# Register this provider when the module is imported
+register()
 ```
 
 ### Rate Limiting
-Configure rate limits per provider:
 
-```yaml
-providers:
-  openai:
-    # ... other settings ...
-    rate_limit:
-      requests_per_minute: 3500  # 60 RPM for free tier, 3500 for pay-as-you-go
-      max_concurrent: 10         # Max concurrent requests
-      retry_delay: 5.0           # Seconds to wait before retrying after rate limit
-      timeout: 30.0              # Request timeout in seconds
+Rate limiting is configured globally in the main configuration:
+
+```python
+# API Throttling Configuration
+API_RPM_LIMIT = int(os.getenv("API_RPM_LIMIT", "100"))  # Requests per minute
+MIN_ITER_SLEEP = 0.2  # Minimum seconds between iterations
+```
+
+You can override these values using environment variables:
+
+```bash
+export API_RPM_LIMIT=100  # Adjust based on your API plan
+export MIN_ITER_SLEEP=0.2  # Minimum seconds between requests
 ```
 
 ### Model-Specific Settings
-Configure settings specific to each model:
 
-```yaml
-default_models:
-  proposer: gpt-4.1-mini
-  solver: qwen/qwen3-235b-a22b-fp8
-  evaluator: deepseek/deepseek-v3-0324
+Model-specific settings are configured in `modules/config/__init__.py`. The default configuration includes:
 
-model_settings:
-  gpt-4.1-mini:
-    temperature: 0.9
-    max_tokens: 2000
-    
-  "qwen/qwen3-235b-a22b-fp8":
-    temperature: 0.7
-    max_tokens: 4000
-    top_p: 0.95
+```python
+# Default Models
+PRIMARY_MODEL_NAME = "qwen/qwen3-235b-a22b-fp8"  # Solver
+SECONDARY_MODEL_NAME = "deepseek/deepseek-v3-0324"  # Evaluator
+OPENAI_QUESTION_MODEL = "gpt-4.1-mini"  # Proposer
+
+# Model Parameters
+PROPOSER_TEMPERATURE = 0.90  # Higher for more creative proposals
+SOLVER_TEMPERATURE = 0.78    # Slightly higher for creative panel roles
+CRITIQUE_TEMPERATURE = 0.5
+REVISE_TEMPERATURE = 0.7
+EVALUATOR_TEMPERATURE = 0.4
+
+# Token Limits
+MAX_TOKENS_PROPOSER = 1000
+MAX_TOKENS_SOLVER = 5300
+MAX_TOKENS_CRITIQUE_REVISE = 5300
+MAX_TOKENS_EVALUATOR = 5300
+```
+
+You can override these values using environment variables:
+
+```bash
+export PRIMARY_MODEL_NAME="qwen/qwen3-235b-a22b-fp8"
+export SECONDARY_MODEL_NAME="deepseek/deepseek-v3-0324"
+export SOLVER_TEMPERATURE=0.78
+# etc.
 ```
 
 ## Examples
